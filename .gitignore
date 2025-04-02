@@ -1,1 +1,7 @@
 *.csv
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.DS_Store
+*.pyc
