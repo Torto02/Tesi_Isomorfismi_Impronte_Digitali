@@ -38,6 +38,115 @@ def is_ridge_jump_similar(jumpA, jumpB, max_diff=2):
     return abs(jumpA - jumpB) <= max_diff
 
 # --- Algoritmo di Matching Ricorsivo ---
+import math
+
+def check_transform_is_ok(G_A, G_B, current_mapping,
+                         max_rotation_deg=80,
+                         allow_reflection=False):
+    """
+    Verifica se la trasformazione che mappa i nodi di G_A in quelli di G_B
+    (secondo `current_mapping`) non introduce riflessione (se allow_reflection=False)
+    e non ha rotazioni superiori a 'max_rotation_deg' gradi.
+
+    Ritorna True se la trasformazione è "accettabile", False altrimenti.
+    """
+
+    # Se il mapping ha pochissimi nodi, spesso non ha senso parlare di rotazione/riflessione.
+    # Magari, se < 3 nodi, lo accettiamo direttamente senza test
+    if len(current_mapping) < 3:
+        return True
+
+    # 1) Estrai le posizioni in liste parallele
+    A_points = []
+    B_points = []
+    for a_node, b_node in current_mapping.items():
+        posA = G_A.nodes[a_node].get('pos')
+        posB = G_B.nodes[b_node].get('pos')
+        if not posA or not posB:
+            # Se manca una posizione, ignoriamo il test e accettiamo (oppure scartiamo)
+            return True
+        A_points.append(posA)
+        B_points.append(posB)
+
+    # 2) Calcola i centroidi (media delle coordinate)
+    def centroid(pts):
+        cx = sum(p[0] for p in pts) / len(pts)
+        cy = sum(p[1] for p in pts) / len(pts)
+        return (cx, cy)
+
+    cA = centroid(A_points)
+    cB = centroid(B_points)
+
+    # 3) Calcola i vettori (dal centroide) e le loro norme
+    def vec_sub(p1, p2):
+        return (p1[0] - p2[0], p1[1] - p2[1])
+
+    A_vecs = [vec_sub(p, cA) for p in A_points]
+    B_vecs = [vec_sub(p, cB) for p in B_points]
+
+    # Per capire se c'è riflessione, guardiamo il segno delle aree di triangoli
+    # in A vs B (un modo veloce per vedere se c'è un flip di orientamento).
+    # Ad esempio prendiamo triplette (0, i, i+1) se i+1 < len(A_vecs).
+    # Calcoliamo cross(A_vecs[i], A_vecs[i+1]) e cross(B_vecs[i], B_vecs[i+1]) e confrontiamo il segno.
+    def cross_z(v1, v2):
+        # Restituisce la componente z del prodotto vettoriale 2D (x1*y2 - y1*x2)
+        return v1[0]*v2[1] - v1[1]*v2[0]
+
+    sign_mismatches = 0
+    total_checked = 0
+    for i in range(1, len(A_vecs)-1):
+        ca = cross_z(A_vecs[i], A_vecs[i+1])
+        cb = cross_z(B_vecs[i], B_vecs[i+1])
+        if ca != 0 and cb != 0:
+            # Se uno dei due è zero, è triangolo degenerato, non lo contiamo
+            total_checked += 1
+            if (ca * cb) < 0:
+                # Hanno segni opposti => riflessione su questo triangolo
+                sign_mismatches += 1
+
+    # Se più della metà dei triangoli ha segno opposto, è molto probabilmente una riflessione
+    if not allow_reflection and total_checked > 0:
+        fraction = sign_mismatches / total_checked
+        if fraction > 0.5:
+            # troppa differenza di segno => riflessione netta
+            return False
+
+    # 4) Calcolo dell’angolo medio di rotazione (un metodo semplificato):
+    #    Confrontiamo l’angolo dei vettori in B con quelli corrispondenti in A.
+    #    Cerchiamo la "miglior" differenza angolare media, poi verifichiamo se è > soglia.
+
+    def vec_angle(v):
+        # Restituisce l'angolo in [0, 2π) del vettore v rispetto all'asse x
+        return math.atan2(v[1], v[0]) if (v[0] != 0 or v[1] != 0) else 0
+
+    A_angles = [vec_angle(v) for v in A_vecs]
+    B_angles = [vec_angle(v) for v in B_vecs]
+
+    # Possiamo calcolare differenze e poi "normalizzarle" in -π..+π
+    # e prenderne la media. Ovviamente, un matching perfetto (senza riflessioni)
+    # si dovrebbe allineare con differenza ~ costante.
+    diffs = []
+    for a_ang, b_ang in zip(A_angles, B_angles):
+        diff = b_ang - a_ang
+        # Normalizza in -π..+π
+        while diff > math.pi:
+            diff -= 2*math.pi
+        while diff <= -math.pi:
+            diff += 2*math.pi
+        diffs.append(diff)
+
+    # Ora prendiamo la media
+    avg_diff = sum(diffs)/len(diffs)
+    # Convertiamo in gradi
+    avg_diff_deg = abs(avg_diff * 180.0 / math.pi)
+
+    if avg_diff_deg > max_rotation_deg:
+        # Rotazione media troppo ampia => scarta
+        return False
+
+    return True
+
+
 
 def match_subgraphs(
     G_A, G_B,            # I sottografi (indotti) da confrontare
