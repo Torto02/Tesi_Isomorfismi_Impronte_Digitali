@@ -5,7 +5,7 @@ import os
 
 def main():
     # Flag per mostrare o meno i nodi/archi "added"
-    SHOW_ADDED = False
+    SHOW_ADDED = True
 
     # Percorso della cartella contenente le impronte
     folder_path = "/Users/riccardotortorelli/Desktop/Tesi/Archivio"
@@ -45,10 +45,10 @@ def main():
     impronta_path = os.path.join(folder_path, impronta_selezionata)
 
     # Percorsi ai file JSON
-    nodes_file = os.path.join(impronta_path, "nodes_graph.json")
-    # edges_file = os.path.join(impronta_path, "edges_simple_graph.json")
-    # nodes_file = os.path.join(impronta_path, "nodes_simple_graph.json")
-    edges_file = os.path.join(impronta_path, "edges_graph.json")
+    # nodes_file = os.path.join(impronta_path, "nodes_graph.json")
+    edges_file = os.path.join(impronta_path, "edges_simple_graph.json")
+    nodes_file = os.path.join(impronta_path, "nodes_simple_graph.json")
+    # edges_file = os.path.join(impronta_path, "edges_graph.json")
 
     # Controllo se i file esistono
     if not os.path.exists(nodes_file) or not os.path.exists(edges_file):

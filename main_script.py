@@ -5,9 +5,7 @@ import networkx as nx # Importato per accedere a G.nodes[...]['type'] etc.
 # Importa funzioni dai moduli creati
 from graph_processing import load_fingerprint_and_compute
 from subgraph_operations import get_subgraph_within_radius, get_connected_subgraphs_of_minutiae
-# from matching import match_subgraphs
-from matching import match_subgraphs, is_cost_similar, is_ridge_jump_similar, check_transform_is_ok
-
+from matching import match_subgraphs
 from plotting import plot_and_save_subgraph, plot_mapping, plot_final_graphs
 
 # --- Definisci qui le costanti per i percorsi ---
@@ -18,7 +16,7 @@ OUTPUT_FOLDER_GRAPHS = "/Users/riccardotortorelli/Desktop/Tesi/OutputGraphs"
 OUTPUT_FOLDER_SUBGRAPHS = "/Users/riccardotortorelli/Desktop/Tesi/OutputSubgraphs" # Per i plot dei match singoli e finali
 
 # --- Parametri Configurabili ---
-RADIUS_PERCENTAGE_A = 0.20  # Percentuale della max distanza euclidea per il raggio in A
+RADIUS_PERCENTAGE_A = 0.10  # Percentuale della max distanza euclidea per il raggio in A
 RADIUS_PERCENTAGE_B = 0.20  # Percentuale della max distanza euclidea per il raggio in B (più grande?)
 MINUTIAE_SUBGRAPH_SIZE = 6  # Dimensione dei sotto-sottografi di minuzie da cercare
 MATCHING_COST_THRESHOLD_REL = 0.28# Soglia differenza relativa per M1, M2 nel matching
@@ -247,23 +245,9 @@ def main():
             #       se vuoi un isomorfismo esatto, ma qui basta che A sia mappato in B.
             is_complete_match = success and len(current_mapping) == len(subG_A.nodes())
 
-            # if is_complete_match:
-            #     match_counter += 1
-            #     print(f"\nMatch #{match_counter} Trovato!")
             if is_complete_match:
-                # Prima di "accettare" il match, controlliamo se c'è riflessione o rotazione eccessiva
-                if not check_transform_is_ok(G_A, G_B, current_mapping,
-                                            max_rotation_deg=45,
-                                            allow_reflection=False):
-                    print("   -> Scartato: trasformazione speculare o rotazione troppo grande.")
-                    # non salviamo nulla e continuiamo al prossimo
-                    continue
-
-                # Se invece il match è “OK”, prosegui come prima
                 match_counter += 1
-                print(f"\nMatch #{match_counter} Trovato e Accettato!")
-                ...
-
+                print(f"\nMatch #{match_counter} Trovato!")
                 print(f"  Sottografo A (nodi): {subsetA_nodes}")
                 print(f"  Sottografo B (nodi): {subsetB_nodes}")
                 print(f"  Mapping: {current_mapping}")
@@ -319,4 +303,3 @@ def main():
 # --- Esecuzione dello script ---
 if __name__ == "__main__":
     main()
-
