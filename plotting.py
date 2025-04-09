@@ -3,27 +3,23 @@ import networkx as nx
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 
-# Mappa colori standard per i tipi di nodo (usata da più funzioni)
 NODE_TYPE_COLOR_MAP = {
     'ending': 'red',
     'bifurcation': 'blue',
     'core': 'cyan',
     'delta': 'gold',
-    'added': 'none',  # verrà comunque filtrato, ma se volessi colorarli "trasparenti"
-    'unknown': 'grey' # Colore per tipi non specificati
+    'added': 'none',  
+    'unknown': 'grey' 
 }
 
-# Mappa colori per plot finale (ora identica alla mappa standard per coerenza)
 FINAL_PLOT_NODE_COLOR_MAP = NODE_TYPE_COLOR_MAP
 
-# Mappa colori per i tipi di archi
 EDGE_TYPE_COLOR_MAP = {
     'ridge': 'darkblue',
-    'added': 'none',  # verrà filtrato
-    'unknown': 'grey'  # Colore per tipi non specificati
+    'added': 'none',  
+    'unknown': 'grey'  
 }
 
-# Mappa colori per archi nel plot finale
 FINAL_PLOT_EDGE_COLOR_MAP = EDGE_TYPE_COLOR_MAP
 
 
@@ -163,11 +159,11 @@ def plot_mapping(S_A, S_B, G_A, G_B, mapping, output_folder, filename):
     node_colors_A = []
     node_sizes_A = []
     for n in nodes_A_no_added:
+        node_type = S_A.nodes[n].get('type', 'unknown')
         if n in mapping.keys():
-            node_colors_A.append('red')
+            node_colors_A.append(FINAL_PLOT_NODE_COLOR_MAP.get(node_type, 'grey'))
             node_sizes_A.append(20)  # più grande se mappato
         else:
-            node_type = S_A.nodes[n].get('type', 'unknown')
             node_colors_A.append(FINAL_PLOT_NODE_COLOR_MAP.get(node_type, 'grey'))
             node_sizes_A.append(10)
 
@@ -195,11 +191,11 @@ def plot_mapping(S_A, S_B, G_A, G_B, mapping, output_folder, filename):
     node_colors_B = []
     node_sizes_B = []
     for n in nodes_B_no_added:
+        node_type = S_B.nodes[n].get('type', 'unknown')
         if n in mapping.values():
-            node_colors_B.append('red')
+            node_colors_B.append(FINAL_PLOT_NODE_COLOR_MAP.get(node_type, 'grey'))
             node_sizes_B.append(20)
         else:
-            node_type = S_B.nodes[n].get('type', 'unknown')
             node_colors_B.append(FINAL_PLOT_NODE_COLOR_MAP.get(node_type, 'grey'))
             node_sizes_B.append(10)
 

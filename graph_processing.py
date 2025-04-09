@@ -1,9 +1,11 @@
+"""
+"""
+
 import os
 import json
 import networkx as nx
 import math
 
-# --- Funzioni di supporto per il calcolo delle matrici ---
 
 def single_source_custom_dijkstra(graph, source, weight_func):
     """
@@ -11,7 +13,7 @@ def single_source_custom_dijkstra(graph, source, weight_func):
     usando 'weight_func' come funzione per calcolare il peso di ogni arco.
     Ritorna un dizionario {nodo_destinazione: distanza}.
     """
-    # Aggiunge la chiave 'temp_weight' ai singoli archi per lanciare la dijkstra nativa di networkx.
+
     for (u, v) in graph.edges():
         d = graph[u][v]
         d['temp_weight'] = weight_func(u, v, d)
@@ -20,13 +22,11 @@ def single_source_custom_dijkstra(graph, source, weight_func):
     try:
         distances = nx.single_source_dijkstra_path_length(graph, source, weight='temp_weight')
     except nx.NetworkXNoPath:
-        # Se non ci sono percorsi dal nodo source (es. isolato), ritorna solo la distanza a se stesso
+        # Se non ci sono percorsi dal nodo source ritorna solo la distanza a se stesso
         distances = {source: 0.0} 
         print(f"Attenzione: Nessun percorso trovato da nodo {source} in single_source_custom_dijkstra.")
 
-    # Ripulisce la chiave 'temp_weight'
     for (u, v) in graph.edges():
-        # Verifica se la chiave 'temp_weight' esiste prima di eliminarla
         if 'temp_weight' in graph[u][v]:
              del graph[u][v]['temp_weight']
              
@@ -52,7 +52,7 @@ def save_matrix_to_file(matrix, filename):
                 for x in row
             ) + '\n')
 
-# --- Funzione principale di caricamento e calcolo ---
+#! --- Funzione principale di caricamento e calcolo ---
 
 def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
     """
@@ -60,7 +60,7 @@ def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
     calcola (o ricarica da file) M1, M2, M3, M4.
     Ritorna (G, M1, M2, M3, M4).
     """
-    # Carica i file JSON
+
     nodes_file = os.path.join(folder_path, "nodes_graph.json")
     edges_file = os.path.join(folder_path, "edges_graph.json")
 
@@ -77,7 +77,6 @@ def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
     m3_path = os.path.join(matrices_folder, "M3.csv")
     m4_path = os.path.join(matrices_folder, "M4.csv")
 
-    # Costruisci comunque il grafo G
     with open(nodes_file, 'r') as f:
         nodes_data = json.load(f)
     with open(edges_file, 'r') as f:
@@ -97,19 +96,18 @@ def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
         etype = edge.get('type', 'edge')
         dist = edge.get('distance', None)
         if G.has_node(node1) and G.has_node(node2):
-             # Assicurati che 'distance' sia un float o None
             if dist is not None:
                 try:
                     dist = float(dist)
                 except (ValueError, TypeError):
                     print(f"Attenzione: Distanza non valida '{dist}' per arco ({node1}, {node2}). Impostata a None.")
-                    dist = None # O gestisci diversamente
+                    dist = None 
             G.add_edge(node1, node2, type=etype, distance=dist)
         else:
             print(f"Attenzione: arco con nodi {edge['nodes']} non valido (uno o entrambi i nodi non esistono nel grafo). Arco ignorato.")
 
 
-    # Se le matrici esistono già, le carichiamo
+    #! Se le matrici esistono già, le carichiamo
     if (os.path.exists(m1_path) and os.path.exists(m2_path) and
         os.path.exists(m3_path) and os.path.exists(m4_path)):
         print(f"\nMatrici già esistenti per {impronta_nome}, caricamento in corso...")
@@ -122,36 +120,35 @@ def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
             return G, M1, M2, M3, M4
         except Exception as e:
             print(f"Errore durante il caricamento delle matrici per {impronta_nome}: {e}. Ricalcolo...")
-            # Continua per ricalcolare
+            
 
-    # Altrimenti, le calcoliamo da zero
+    #! Altrimenti, le calcoliamo da zero
     print(f"\nCalcolo delle matrici per {impronta_nome}...")
-    os.makedirs(matrices_folder, exist_ok=True) # Crea la cartella se non esiste
+    os.makedirs(matrices_folder, exist_ok=True) 
 
-    # --- Funzioni peso definite localmente (usate solo qui) ---
+    #! --- Funzioni peso 
     def weight_function_m1(u, v, d):
         arco_type = d.get('type')
         if arco_type == 'added':
             return 1.0
         elif arco_type == 'border':
             return 5.0
-        else: # 'ridge' o altri tipi considerati "veri"
-            return 0.0001 # Costo molto basso per favorire questi archi
+        else: # 'ridge' 
+            return 0.0001 
 
     def weight_function_m2(u, v, d):
-        # Priorità alla distanza precalcolata sull'arco 'ridge'
         dist_attr = d.get('distance')
         if d.get('type') != 'added' and dist_attr is not None:
              return float(dist_attr) # Usa la distanza dell'arco se esiste e non è 'added'
         else:
-            # Altrimenti (arco 'added' o 'ridge' senza distanza) usa euclidea
+            # Altrimenti usa euclidea
             try:
                 pos_u = G.nodes[u]['pos']
                 pos_v = G.nodes[v]['pos']
                 return math.dist(pos_u, pos_v)
             except KeyError:
                 print(f"Attenzione: Coordinate mancanti per i nodi {u} o {v} nel calcolo M2.")
-                return float('inf') # Ritorna infinito se le posizioni non sono disponibili
+                return float('inf') 
 
 
     N = G.number_of_nodes()
@@ -172,7 +169,7 @@ def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
         M3[i][i] = 0.0
         M4[i][i] = 0
 
-    # Calcolo M1
+    #! Calcolo M1 --> assegna il pesp in base al tipo di arco 
     print("Calcolo M1...")
     for node_start in G.nodes():
         dist_dict = single_source_custom_dijkstra(G, node_start, weight_function_m1)
@@ -180,7 +177,7 @@ def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
             if 0 <= node_start < N and 0 <= node_end < N:
                  M1[node_start][node_end] = dist_val
 
-    # Calcolo M2
+    #! Calcolo M2 --> assegna il peso in base alla distanza geometrica (se esiste) altrimenti calcola quella euclidea
     print("Calcolo M2...")
     for node_start in G.nodes():
         dist_dict = single_source_custom_dijkstra(G, node_start, weight_function_m2)
@@ -188,10 +185,10 @@ def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
             if 0 <= node_start < N and 0 <= node_end < N:
                 M2[node_start][node_end] = dist_val
 
-    # Calcolo M3 (euclidea pura)
+    #! Calcolo M3 --> assegna il peso calcolando la distanza euclidea 
     print("Calcolo M3...")
     coords = nx.get_node_attributes(G, 'pos')
-    node_list = list(G.nodes()) # Ottieni l'ordine dei nodi come sono nel grafo
+    node_list = list(G.nodes()) 
     node_indices = {node_id: i for i, node_id in enumerate(node_list)}
 
     for i_idx, i_node in enumerate(node_list):
@@ -205,9 +202,9 @@ def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
                     M3[i_idx][j_idx] = math.dist(pos_i, pos_j)
                  except KeyError:
                      print(f"Attenzione: Coordinate mancanti per nodi {i_node} o {j_node} in M3.")
-                     M3[i_idx][j_idx] = float('inf') # O gestisci diversamente
+                     M3[i_idx][j_idx] = float('inf') 
 
-    # Calcolo M4 (numero di salti, BFS) - Solo su archi non 'added'
+    #! Calcolo M4 --> numero di archi non added tra due nodi
     print("Calcolo M4...")
     # Crea un grafo temporaneo senza archi 'added' per BFS
     G_no_added = G.copy()
@@ -215,7 +212,7 @@ def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
     G_no_added.remove_edges_from(added_edges)
 
     for node_start in G_no_added.nodes():
-         # Esegui BFS sul grafo senza archi 'added'
+        # Esegue BFS sul grafo senza archi 'added'
         dist_dict = nx.single_source_shortest_path_length(G_no_added, node_start)
         idx_start = node_indices.get(node_start)
         if idx_start is not None:
@@ -225,7 +222,6 @@ def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
                      M4[idx_start][idx_end] = dist_val
 
 
-    # Salviamo le matrici calcolate
     try:
         save_matrix_to_file(M1, m1_path)
         save_matrix_to_file(M2, m2_path)

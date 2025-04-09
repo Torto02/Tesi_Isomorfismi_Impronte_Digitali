@@ -5,3 +5,7 @@
 *.gif
 *.DS_Store
 *.pyc
+Archivio/
+OutputMatrices/
+DfsVisit/
+oldfile/
