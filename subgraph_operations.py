@@ -1,7 +1,7 @@
 import networkx as nx
 # from itertools import combinations # Probabilmente non serve più qui
 
-
+# ---> ASSICURATI CHE QUESTA FUNZIONE SIA PRESENTE E NON COMMENTATA <---
 def get_subgraph_within_radius(G, M3, source_node, radius):
     """
     Ritorna il sottografo di G contenente i nodi che distano <= radius dal source_node

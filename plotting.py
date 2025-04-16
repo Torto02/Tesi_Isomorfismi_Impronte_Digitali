@@ -10,8 +10,7 @@ NODE_TYPE_COLOR_MAP = {
     'bifurcation': 'blue',
     'core': 'cyan',
     'delta': 'gold',
-    'added': 'none',
-    'unknown': 'gray' # Colore per tipi non specificati
+    'unknown': 'grey' # Colore per tipi non specificati
 }
 
 # Mappa colori per plot finale (ora identica alla mappa standard per coerenza)
