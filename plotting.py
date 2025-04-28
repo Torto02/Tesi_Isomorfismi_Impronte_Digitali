@@ -8,9 +8,9 @@ from matplotlib.patches import Circle
 NODE_TYPE_COLOR_MAP = {
     'ending': 'red',
     'bifurcation': 'blue',
-    'core': 'cyan',
-    'delta': 'gold',
-    'added': 'none',
+    # 'core': 'cyan',
+    # 'delta': 'gold',
+    'added': 'lightgreen',
     'unknown': 'gray' # Colore per tipi non specificati
 }
 
@@ -21,9 +21,10 @@ def plot_and_save_subgraph(S, G_original, source_node, output_folder, filename):
     """
     Disegna il sottografo S (estratto da G_original) e lo salva.
     - Disegna solo archi non 'added'.
-    - Colora i nodi base al loro 'type' usando NODE_TYPE_COLOR_MAP.
+    - Colora i nodi base al loro 'type' usando FINAL_PLOT_NODE_COLOR_MAP.
     - Evidenzia il nodo sorgente in giallo.
     - Aggiunge etichette (indici) ai nodi.
+    - Usa stili simili a plot_final_graphs per elementi non evidenziati.
     """
     # Ottieni posizioni dal grafo originale G_original per coerenza
     pos = nx.get_node_attributes(G_original, 'pos')
@@ -38,58 +39,57 @@ def plot_and_save_subgraph(S, G_original, source_node, output_folder, filename):
     true_ridge_edges = [(u, v) for u, v, data in S.edges(data=True)
                         if data.get('type') != 'added']
 
-    # Costruisco la lista di colori corrispondente all'ordine dei nodi in S
+    # Costruisco la lista di colori e dimensioni corrispondente all'ordine dei nodi in S
     node_colors = []
     node_sizes = []
     node_list_S = list(S.nodes()) # Ottieni l'ordine dei nodi in S
     for n in node_list_S:
         node_data = S.nodes[n]
         tipo = node_data.get('type', 'unknown')
-        # Usa la mappa colori del plot finale per coerenza visiva dove possibile
         node_colors.append(FINAL_PLOT_NODE_COLOR_MAP.get(tipo, 'grey'))
-        # Dimensione standard per tutti i nodi
-        node_sizes.append(15)
+        # Dimensione base piccola, simile a plot_final_graphs per nodi non matchati
+        node_sizes.append(2)
 
-    plt.figure(figsize=(18, 9))
+    plt.figure(figsize=(9, 9))
     ax = plt.gca() # Get current axes
 
-    # Disegno i nodi con colore a seconda del tipo
+    # Disegno i nodi con colore a seconda del tipo e dimensione base piccola
     nx.draw_networkx_nodes(
         S, pos_S,
         nodelist=node_list_S,
         node_size=node_sizes,
         node_color=node_colors,
-        linewidths=0.5, # Leggero bordo per chiarezza
-        edgecolors='black',
+        linewidths=0, # Rimuovi bordo di default
+        # edgecolors='black', # Non necessario con linewidths=0
         ax=ax
     )
 
-    # Disegno solo gli archi "veri ridge"
+    # Disegno solo gli archi "veri ridge" con stile tenue
     nx.draw_networkx_edges(
         S, pos_S,
         edgelist=true_ridge_edges,
-        edge_color="grey",
-        width=0.5,
+        edge_color="darkgrey", # Colore tenue come in plot_final_graphs
+        width=0.2,           # Spessore ridotto come in plot_final_graphs
         ax=ax
     )
 
-    # Evidenzio il nodo sorgente (se presente)
+    # Evidenzio il nodo sorgente (se presente) con stile più marcato
     if source_node in S:
         nx.draw_networkx_nodes(
             S, pos_S,
             nodelist=[source_node],
-            node_size=15,
-            node_color="red", # Cambiato in rosso per maggior visibilità
-            edgecolors='black', # Bordo per risaltare
-            linewidths=1.0,
+            node_size=10,       # Dimensione maggiore per evidenziare
+            node_color="yellow", # Colore giallo per evidenziare
+            edgecolors='black', # Bordo nero per risaltare
+            linewidths=0.5,     # Leggero bordo
             ax=ax
         )
 
-    # Label sui nodi (Indice del nodo) - MODIFICA: Riattivato
+    # Label sui nodi (Indice del nodo) - Mantenuto piccolo
     nx.draw_networkx_labels(
         S, pos_S,
         labels={n: str(n) for n in node_list_S},
-        font_size=0.5,  # Dimensione appropriata per sottografo
+        font_size=0.5,  # Dimensione piccola
         font_color="black",
         ax=ax
     )
@@ -141,7 +141,9 @@ def plot_mapping(S_A, S_B, G_A, G_B, mapping, output_folder, filename):
     node_sizes_A = []
     for n in node_list_A:
         if n in mapping.keys():
-            node_colors_A.append('red')
+            node_type = S_A.nodes[n].get('type', 'unknown')
+            # node_colors_A.append('red')
+            node_colors_A.append(FINAL_PLOT_NODE_COLOR_MAP.get(node_type, 'grey'))
             node_sizes_A.append(20) # Leggermente più grandi se mappati
         else:
             node_type = S_A.nodes[n].get('type', 'unknown')
@@ -153,7 +155,7 @@ def plot_mapping(S_A, S_B, G_A, G_B, mapping, output_folder, filename):
     edge_widths_A = []
     for u, v in edges_A_no_added:
         if u in mapping.keys() and v in mapping.keys():
-            edge_colors_A.append('red')
+            edge_colors_A.append('darkgrey')
             edge_widths_A.append(0.7) # Più spessi se tra nodi mappati
         else:
             edge_colors_A.append('darkgrey')
@@ -175,7 +177,9 @@ def plot_mapping(S_A, S_B, G_A, G_B, mapping, output_folder, filename):
     node_sizes_B = []
     for n in node_list_B:
         if n in mapping.values():
-            node_colors_B.append('red')
+            # node_colors_B.append('red')
+            node_type = S_B.nodes[n].get('type', 'unknown')
+            node_colors_B.append(FINAL_PLOT_NODE_COLOR_MAP.get(node_type, 'grey'))
             node_sizes_B.append(20)
         else:
             node_type = S_B.nodes[n].get('type', 'unknown')
@@ -187,7 +191,7 @@ def plot_mapping(S_A, S_B, G_A, G_B, mapping, output_folder, filename):
     edge_widths_B = []
     for u, v in edges_B_no_added:
         if u in mapping.values() and v in mapping.values():
-            edge_colors_B.append('red')
+            edge_colors_B.append('darkgrey')
             edge_widths_B.append(0.7)
         else:
             edge_colors_B.append('darkgrey')
@@ -253,16 +257,16 @@ def plot_final_graphs(
     node_to_color_B = {}
     
     # Se abbiamo la lista dei match, assegna colori diversi a ciascun match
-    if all_matches:
-        for i, match_info in enumerate(all_matches):
-            color_idx = i % len(match_colors)  # Riutilizza i colori se ci sono più match che colori
-            color = match_colors[color_idx]
+    # if all_matches:
+    #     for i, match_info in enumerate(all_matches):
+    #         color_idx = i % len(match_colors)  # Riutilizza i colori se ci sono più match che colori
+    #         color = 'black'
             
-            # Assegna lo stesso colore a tutti i nodi di questo match
-            for node_a in match_info['nodes_A']:
-                node_to_color_A[node_a] = color
-            for node_b in match_info['nodes_B']:
-                node_to_color_B[node_b] = color
+    #         # Assegna lo stesso colore a tutti i nodi di questo match
+    #         for node_a in match_info['nodes_A']:
+    #             node_to_color_A[node_a] = color
+    #         for node_b in match_info['nodes_B']:
+    #             node_to_color_B[node_b] = color
 
     # --- GRAFO A ---
     edges_A_no_added = [(u, v) for u, v, data in G_A.edges(data=True) if data.get('type') != 'added']
@@ -273,15 +277,16 @@ def plot_final_graphs(
     node_sizes_A = []
     labels_A = {}  # Dizionario per le etichette (solo nodi matchati)
     for n in nodes_A_list:
-        if n in matched_nodes_A:
-            # Usa il colore specifico del match se disponibile, altrimenti usa rosso
-            node_colors_A.append(node_to_color_A.get(n, 'red'))
-            node_sizes_A.append(5)  # Dimensione maggiore per matchati
-            labels_A[n] = str(n)  # Aggiungi etichetta per nodo matchato
-        else:
+        # if n in matched_nodes_A:
+        #     # Usa il colore specifico del match se disponibile, altrimenti usa rosso
+        #     node_colors_A.append(node_to_color_A.get(n, 'red'))
+        #     node_sizes_A.append(1)  # Dimensione maggiore per matchati
+        #     labels_A[n] = str(n)  # Aggiungi etichetta per nodo matchato
+        # else:
             node_type = G_A.nodes[n].get('type', 'unknown')
             node_colors_A.append(FINAL_PLOT_NODE_COLOR_MAP.get(node_type, 'grey'))
-            node_sizes_A.append(1)  # Dimensione molto piccola per non matchati
+            node_sizes_A.append(1)  
+            labels_A[n] = str(n)
 
     # Disegna tutti i nodi
     nx.draw_networkx_nodes(G_A, posA, nodelist=nodes_A_list, node_size=node_sizes_A, 
@@ -291,22 +296,21 @@ def plot_final_graphs(
     edge_colors_A = []
     edge_widths_A = []
     for u, v in edges_A_no_added:
-        if u in matched_nodes_A and v in matched_nodes_A:
-            # Se entrambi i nodi appartengono allo stesso match, usa il loro colore
-            if u in node_to_color_A and v in node_to_color_A and node_to_color_A[u] == node_to_color_A[v]:
-                edge_colors_A.append(node_to_color_A[u])
-            else:
-                edge_colors_A.append('red')  # Default se non hanno lo stesso colore
-            edge_widths_A.append(0.5)  # Spessore maggiore per matchati
-        else:
+        # if u in matched_nodes_A and v in matched_nodes_A:
+        #     # Se entrambi i nodi appartengono allo stesso match, usa il loro colore
+        #     if u in node_to_color_A and v in node_to_color_A and node_to_color_A[u] == node_to_color_A[v]:
+        #         edge_colors_A.append(node_to_color_A[u])
+        #     else:
+        #         edge_colors_A.append('red')  # Default se non hanno lo stesso colore
+        #     edge_widths_A.append(0.5)  # Spessore maggiore per matchati
+        # else:
             edge_colors_A.append('darkgrey')
-            edge_widths_A.append(0.1)  # Spessore molto piccolo per non matchati
+            edge_widths_A.append(0.2)  # Spessore molto piccolo per non matchati
 
-    # Disegna tutti gli archi (non 'added')
+
     nx.draw_networkx_edges(G_A, posA, edgelist=edges_A_no_added, edge_color=edge_colors_A, 
                           width=edge_widths_A, ax=ax1)
 
-    # Disegna le etichette SOLO per i nodi matchati
     nx.draw_networkx_labels(G_A, posA, labels=labels_A, font_size=0.5, font_color='black', ax=ax1)
 
     # Disegna la circonferenza A
@@ -326,15 +330,16 @@ def plot_final_graphs(
     node_sizes_B = []
     labels_B = {}  # Dizionario etichette B
     for n in nodes_B_list:
-        if n in matched_nodes_B:
-            # Usa il colore specifico del match se disponibile, altrimenti usa rosso
-            node_colors_B.append(node_to_color_B.get(n, 'red'))
-            node_sizes_B.append(5)
-            labels_B[n] = str(n)  # Aggiungi etichetta B
-        else:
+        # if n in matched_nodes_B:
+        #     # Usa il colore specifico del match se disponibile, altrimenti usa rosso
+        #     node_colors_B.append(node_to_color_B.get(n, 'red'))
+        #     node_sizes_B.append(5)
+        #     labels_B[n] = str(n)  # Aggiungi etichetta B
+        # else:
             node_type = G_B.nodes[n].get('type', 'unknown')
             node_colors_B.append(FINAL_PLOT_NODE_COLOR_MAP.get(node_type, 'grey'))
             node_sizes_B.append(1)
+            labels_B[n] = str(n)
 
     nx.draw_networkx_nodes(G_B, posB, nodelist=nodes_B_list, node_size=node_sizes_B, 
                           node_color=node_colors_B, ax=ax2, linewidths=0)
@@ -342,21 +347,20 @@ def plot_final_graphs(
     edge_colors_B = []
     edge_widths_B = []
     for u, v in edges_B_no_added:
-        if u in matched_nodes_B and v in matched_nodes_B:
-            # Se entrambi i nodi appartengono allo stesso match, usa il loro colore
-            if u in node_to_color_B and v in node_to_color_B and node_to_color_B[u] == node_to_color_B[v]:
-                edge_colors_B.append(node_to_color_B[u])
-            else:
-                edge_colors_B.append('red')  # Default se non hanno lo stesso colore
-            edge_widths_B.append(0.5)
-        else:
+    #     if u in matched_nodes_B and v in matched_nodes_B:
+    #         # Se entrambi i nodi appartengono allo stesso match, usa il loro colore
+    #         if u in node_to_color_B and v in node_to_color_B and node_to_color_B[u] == node_to_color_B[v]:
+    #             edge_colors_B.append(node_to_color_B[u])
+    #         else:
+    #             edge_colors_B.append('red')  # Default se non hanno lo stesso colore
+    #         edge_widths_B.append(0.5)
+    #     else:
             edge_colors_B.append('darkgrey')
-            edge_widths_B.append(0.1)
+            edge_widths_B.append(0.2)
 
     nx.draw_networkx_edges(G_B, posB, edgelist=edges_B_no_added, edge_color=edge_colors_B, 
                           width=edge_widths_B, ax=ax2)
 
-    # Disegna le etichette SOLO per i nodi matchati B
     nx.draw_networkx_labels(G_B, posB, labels=labels_B, font_size=0.5, font_color='black', ax=ax2)
 
     # Disegna la circonferenza B

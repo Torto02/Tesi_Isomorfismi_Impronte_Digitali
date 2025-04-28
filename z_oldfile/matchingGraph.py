@@ -1179,7 +1179,7 @@ def load_fingerprint_and_compute(folder_path):
     def weight_function_m1(u, v, d):
         arco_type = d.get('type')
         if arco_type == 'added':
-            return 1.0
+            return 5.0
         elif arco_type == 'border':
             return 5.0
         else:

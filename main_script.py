@@ -2,11 +2,12 @@
 import os
 import math
 import networkx as nx
+import datetime
 
 # Importa funzioni dai moduli creati
 from graph_processing import load_fingerprint_and_compute
-from subgraph_operations import get_subgraph_within_radius, get_connected_subgraphs_of_minutiae
-from matching import match_subgraphs
+from subgraph_operations import get_subgraph_within_radius, get_connected_subgraphs_of_minutiae, get_connected_subgraphs_of_minutiae_parallel
+from matching import match_subgraph
 from plotting import plot_and_save_subgraph, plot_mapping, plot_final_graphs
 
 # --- Definisci qui le costanti per i percorsi ---
@@ -18,13 +19,13 @@ OUTPUT_FOLDER_SUBGRAPHS = "/Users/riccardotortorelli/Desktop/Tesi/Output_Subgrap
 OUTPUT_FOLDER_FINAL_GRAPHS = "/Users/riccardotortorelli/Desktop/Tesi/Output_Final_Graphs"
 
 # --- Parametri Configurabili ---
-RADIUS_PERCENTAGE_A = 0.10 # Percentuale della max distanza euclidea per il raggio in A
-RADIUS_PERCENTAGE_B = 0.20 # Percentuale della max distanza euclidea per il raggio in B
+RADIUS_PERCENTAGE_A = 0.06 # Percentuale della max distanza euclidea per il raggio in A
+RADIUS_PERCENTAGE_B = 0.10 # Percentuale della max distanza euclidea per il raggio in B
 MINUTIAE_SUBGRAPH_SIZE = 6 # Dimensione dei sotto-sottografi di minuzie da cercare
 MIN_MATCH_NODES = 4        # Numero minimo di nodi matchati per considerare un match valido (>=4)
 MATCHING_COST_THRESHOLD_REL = 0.6 # Soglia differenza relativa per M1 cost (0.6 = 60% di tolleranza)
-MATCHING_MAX_RIDGE_DIFF = 1     # Soglia differenza assoluta per M_scavalcamenti
-MATCHING_ANGLE_TOLERANCE_DEGREES = 20 # Soglia tolleranza angolare in gradi (es. +/- 35 gradi)
+MATCHING_MAX_RIDGE_DIFF = 2     # Soglia differenza assoluta per M_scavalcamenti
+MATCHING_ANGLE_TOLERANCE_DEGREES = 30 # Soglia tolleranza angolare in gradi (es. +/- 35 gradi)
 
 def find_max_finite_distance(matrix):
     """Trova il massimo valore finito in una matrice di distanze (usato per M3)."""
@@ -38,6 +39,19 @@ def find_max_finite_distance(matrix):
     return max_dist if max_dist > 0 else 100.0
 
 def main():
+    # --- Crea una cartella di output unica per questa esecuzione (solo per output diversi dalle matrici) ---
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    OUTPUT_BASE_FOLDER = os.path.join("/Users/riccardotortorelli/Desktop/Tesi/Output", f"Run_{timestamp}")
+    OUTPUT_FOLDER_GRAPHS = os.path.join(OUTPUT_BASE_FOLDER, "Graphs")
+    OUTPUT_FOLDER_SUBGRAPHS = os.path.join(OUTPUT_BASE_FOLDER, "Subgraphs")
+    OUTPUT_FOLDER_FINAL_GRAPHS = os.path.join(OUTPUT_BASE_FOLDER, "Final_Graphs")
+    os.makedirs(OUTPUT_FOLDER_GRAPHS, exist_ok=True)
+    os.makedirs(OUTPUT_FOLDER_SUBGRAPHS, exist_ok=True)
+    os.makedirs(OUTPUT_FOLDER_FINAL_GRAPHS, exist_ok=True)
+
+    # Cartella fissa per le matrici (NON nella cartella della singola run)
+    OUTPUT_FOLDER_MATRICES = "/Users/riccardotortorelli/Desktop/Tesi/OutputMatrices"
+
     # Verifica cartella base impronte
     if not os.path.exists(BASE_FOLDER_IMPRONTE):
         print(f"Errore: La cartella impronte '{BASE_FOLDER_IMPRONTE}' non esiste.")
@@ -139,7 +153,7 @@ def main():
              print(f"Errore: Dati mancanti per la minuzia selezionata. Riprova.")
 
 
-    # --- Estrazione Sottografo A (basato su raggio M3) ---
+    #! --- Estrazione Sottografo A (basato su raggio M3) ---
     print("\n--- Estrazione Sottografi Locali ---")
     max_dist_A = find_max_finite_distance(M3_A)
     radiusA = RADIUS_PERCENTAGE_A * max_dist_A
@@ -214,15 +228,18 @@ def main():
         f"macro_subgraph_B_{improntaB_nome}_nodo{minuziaB_id}.png"
     )
 
-    # --- Ricerca e Matching dei Sotto-Sottografi di Minuzie ---
+    #! --- Ricerca e Matching dei Sotto-Sottografi di Minuzie ---
     print(f"\n--- Ricerca Sotto-Sottografi Connessi di {MINUTIAE_SUBGRAPH_SIZE} Minuzie ---")
 
-    sub_subgraphs_A = get_connected_subgraphs_of_minutiae(S_A, size=MINUTIAE_SUBGRAPH_SIZE)
-    sub_subgraphs_B = get_connected_subgraphs_of_minutiae(S_B, size=MINUTIAE_SUBGRAPH_SIZE)
+    sub_subgraphs_A = get_connected_subgraphs_of_minutiae_parallel(S_A, size=MINUTIAE_SUBGRAPH_SIZE)
+    sub_subgraphs_B = get_connected_subgraphs_of_minutiae_parallel(S_B, size=MINUTIAE_SUBGRAPH_SIZE)
+
+   
 
     print(f"Trovati {len(sub_subgraphs_A)} sotto-sottografi connessi di {MINUTIAE_SUBGRAPH_SIZE} minuzie in S_A.")
     print(f"Trovati {len(sub_subgraphs_B)} sotto-sottografi connessi di {MINUTIAE_SUBGRAPH_SIZE} minuzie in S_B.")
 
+   
     if not sub_subgraphs_A or not sub_subgraphs_B:
         print("Nessun sotto-sottografo di minuzie della dimensione richiesta trovato. Impossibile eseguire il matching.")
         plot_final_graphs(
@@ -240,74 +257,78 @@ def main():
     all_matches = []
     matched_nodes_A_global = set()
     matched_nodes_B_global = set()
-
+    
     total_pairs_to_check = len(sub_subgraphs_A) * len(sub_subgraphs_B)
-    # print(f"Controllo di {total_pairs_to_check} coppie di sotto-sottografi...")
     checked_count = 0
+    
+    # Teniamo traccia dei mapping già trovati per evitare duplicati
+    found_mappings = set()
 
-    for idxA, (subsetA_nodes, subG_A) in enumerate(sub_subgraphs_A):
-        for idxB, (subsetB_nodes, subG_B) in enumerate(sub_subgraphs_B):
-            checked_count += 1
-            # if checked_count > 0 and checked_count % 500 == 0: # Aggiornamento meno frequente
-                #  print(f"  Controllata coppia {checked_count}/{total_pairs_to_check}...")
-
-            if not subG_A or not subG_B: continue
-            if len(subG_A.nodes()) != MINUTIAE_SUBGRAPH_SIZE or len(subG_B.nodes()) != MINUTIAE_SUBGRAPH_SIZE:
-                 continue
-
-            if not subsetA_nodes or subsetA_nodes[0] not in subG_A: continue
-            if not subsetB_nodes or subsetB_nodes[0] not in subG_B: continue
-            start_nodeA = subsetA_nodes[0]
-            start_nodeB = subsetB_nodes[0]
-
-            current_mapping = {}
-            visited_pairs_match = set()
-
-            # Aggiorna chiamata a match_subgraphs: passa M1, M_scavalcamenti e le soglie
-            success = match_subgraphs(
+    for idxA, (nodesA, subG_A) in enumerate(sub_subgraphs_A):
+        for idxB, (nodesB, subG_B) in enumerate(sub_subgraphs_B):
+            # Esegui il matching tra i due sottografi
+            success, mapping = match_subgraph(
                 subG_A, subG_B,
-                M1_A, M1_B,                   # Passa M1
-                M_scavalcamenti_A,            # Passa Scavalcamenti A
-                M_scavalcamenti_B,            # Passa Scavalcamenti B
-                start_nodeA, start_nodeB,
-                mapping=current_mapping,
-                visited_pairs=visited_pairs_match,
-                cost_threshold_rel=MATCHING_COST_THRESHOLD_REL, # Passa soglia M1
-                max_ridge_diff=MATCHING_MAX_RIDGE_DIFF,         # Passa soglia Scavalcamenti
-                angle_tolerance_degrees=MATCHING_ANGLE_TOLERANCE_DEGREES # Passa soglia Angolo
+                M1_A, M1_B,
+                M_scavalcamenti_A, M_scavalcamenti_B,
+                cost_threshold_rel=MATCHING_COST_THRESHOLD_REL,
+                max_ridge_diff=MATCHING_MAX_RIDGE_DIFF,
+                angle_tolerance_degrees=MATCHING_ANGLE_TOLERANCE_DEGREES
             )
 
-            # --- Logica 4/6 ---
-            if success and len(current_mapping) >= MIN_MATCH_NODES:
-                match_counter += 1
-                print(f"\nMatch #{match_counter} Trovato! ({len(current_mapping)}/{MINUTIAE_SUBGRAPH_SIZE} nodi)")
+            checked_count += 1
+            if checked_count > 0 and checked_count % 5000 == 0: # Aggiornamento meno frequente
+                print(f"  Controllata coppia {checked_count}/{total_pairs_to_check}...")
+            
+            if not success:
+                continue
+                
+            # Converti il mapping in una rappresentazione immutabile per il controllo dei duplicati
+            mapping_tuple = tuple(sorted((a, b) for a, b in mapping.items()))
+            
+            # Salta se questo mapping è già stato trovato
+            if mapping_tuple in found_mappings:
+                continue
+                
+            # Aggiungi il mapping alla lista dei trovati
+            found_mappings.add(mapping_tuple)
 
-                matched_nodesA_in_subgraph = set(current_mapping.keys())
-                matched_nodesB_in_subgraph = set(current_mapping.values())
+            match_counter += 1
+            matched_nodesA = list(mapping.keys())
+            matched_nodesB = [mapping[n] for n in matched_nodesA]
+            
+            # Aggiorna i set globali di nodi matchati
+            matched_nodes_A_global.update(matched_nodesA)
+            matched_nodes_B_global.update(matched_nodesB)
 
-                print(f"  Sottografo A (nodi originali): {subsetA_nodes}")
-                print(f"  Sottografo B (nodi originali): {subsetB_nodes}")
-                print(f"  Nodi A Matchati ({len(matched_nodesA_in_subgraph)}): {sorted(list(matched_nodesA_in_subgraph))}")
-                print(f"  Nodi B Matchati ({len(matched_nodesB_in_subgraph)}): {sorted(list(matched_nodesB_in_subgraph))}")
-                print(f"  Mapping: {current_mapping}")
+            # Stampa informazioni sul match
+            print(f"\nMatch #{match_counter} Trovato!")
+            print(f"  Sottografo A (nodi {matched_nodesA}):")
+            print(f"  Sottografo B (nodi {matched_nodesB}):")
+            print(f"  Mapping: {mapping}")
 
-                all_matches.append({
-                    'map': current_mapping.copy(),
-                    'nodes_A': matched_nodesA_in_subgraph,
-                    'nodes_B': matched_nodesB_in_subgraph
-                })
+            # Salva nei risultati
+            all_matches.append({
+                'mapping': mapping,
+                'nodes_A': matched_nodesA,
+                'nodes_B': matched_nodesB
+            })
 
-                matched_nodes_A_global.update(matched_nodesA_in_subgraph)
-                matched_nodes_B_global.update(matched_nodesB_in_subgraph)
+            # Determina nodi di partenza per il nome del file
+            start_nodeA = nodesA[0]
+            start_nodeB = nodesB[0]
 
-                plot_mapping(
-                    subG_A, subG_B,
-                    G_A, G_B,
-                    current_mapping,
-                    OUTPUT_FOLDER_SUBGRAPHS,
-                    f"match_{match_counter}_A({len(matched_nodesA_in_subgraph)}of{MINUTIAE_SUBGRAPH_SIZE})_{start_nodeA}_vs_B({len(matched_nodesB_in_subgraph)}of{MINUTIAE_SUBGRAPH_SIZE})_{start_nodeB}.png"
-                )
-
+            # Chiama la funzione di plot
+            plot_mapping(
+                subG_A, subG_B,
+                G_A, G_B,
+                mapping,
+                OUTPUT_FOLDER_SUBGRAPHS,
+                f"match_{match_counter}_A({len(matched_nodesA)}of{MINUTIAE_SUBGRAPH_SIZE})_"
+                f"{start_nodeA}_vs_B({len(matched_nodesB)}of{MINUTIAE_SUBGRAPH_SIZE})_"
+                f"{start_nodeB}.png"
+            )
+    
     print(f"\n--- Risultato Matching ---")
     print(f"Totale combinazioni di sotto-sottografi testate: {checked_count}")
     print(f"Numero di match validi trovati (>= {MIN_MATCH_NODES} nodi): {match_counter}")

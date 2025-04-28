@@ -1,5 +1,5 @@
 import networkx as nx
-# from itertools import combinations # Probabilmente non serve più qui
+
 
 
 def get_subgraph_within_radius(G, M3, source_node, radius):
@@ -53,80 +53,204 @@ def get_subgraph_within_radius(G, M3, source_node, radius):
     # Crea il sottografo indotto da questi nodi
     S = G.subgraph(sub_nodes).copy()
     return S
-def get_connected_subgraphs_of_minutiae(S, size=5):
-    """
-    Genera tutti i sottografi connessi di S composti esclusivamente da 'size' minuzie 'vere',
-    escludendo dal calcolo della connettività gli archi di tipo 'added', usando un approccio
-    di espansione ricorsiva.
-    Ritorna una lista di tuple (tuple_di_nodi_ordinati, sottografo_indotto_da_S).
-    """
-    # Estrai i nodi minuzia da S
-    real_minutiae_nodes = {n for n, data in S.nodes(data=True)
-                           if data.get('type') in ('ending', 'bifurcation')}
 
-    if not real_minutiae_nodes:
+
+def get_connected_subgraphs_of_minutiae(S, size=6):
+    """
+    Genera tutti i sottografi connessi di S contenenti ESATTAMENTE 'size' nodi reali,
+    eventualmente arricchiti con nodi 'added' solo se servono da intermediari
+    (scavalcamento), ma li esclude dal conteggio size.
+    """
+    def is_added(n):
+        return S.nodes[n].get('type') == 'added'
+
+    # 1) Come prima: estraiamo tutti i sottografi su archi REALI 
+    all_nodes = set(S.nodes())
+    if not all_nodes:
         return []
 
-    # Crea un grafo temporaneo contenente solo le minuzie e gli archi REALI tra loro
-    # Questo grafo serve per trovare i vicini durante l'espansione
-    S_minutiae_real_edges = nx.Graph()
-    S_minutiae_real_edges.add_nodes_from(real_minutiae_nodes)
-    for u, v, data in S.edges(data=True):
-        if u in real_minutiae_nodes and v in real_minutiae_nodes and data.get('type') != 'added':
-            S_minutiae_real_edges.add_edge(u, v)
+    # Ricostruiamo un grafo con soli archi type != 'added'
+    S_real = nx.Graph()
+    S_real.add_nodes_from(all_nodes)
+    for u, v, d in S.edges(data=True):
+        if d.get('type') != 'added':
+            S_real.add_edge(u, v)
 
-    # Set per memorizzare i set di nodi trovati (usa frozenset per poterli mettere in un set)
     risultati_sets = set()
 
-    # Funzione ricorsiva per l'espansione
-    def expand(current_nodes_set, candidates_set):
-        # Condizione di terminazione: raggiunto la dimensione desiderata
-        if len(current_nodes_set) == size:
-            risultati_sets.add(frozenset(current_nodes_set))
+    def count_real(ns):
+        return sum(1 for x in ns if not is_added(x))
+
+    def expand(curr, cands):
+        r = count_real(curr)
+        if r == size:
+            risultati_sets.add(frozenset(curr))
+            return
+        if r > size or not cands:
             return
 
-        # Condizione di pruning: impossibile raggiungere la dimensione
-        # (se non ci sono più candidati e la dimensione non è raggiunta)
-        if not candidates_set:
-             return
+        for n in list(cands):
+            # non superare il numero di reali
+            if not is_added(n) and r + 1 > size:
+                continue
+            new_curr = curr | {n}
+            rem = cands - {n}
+            # nuovi candidati: vicini REALI di n in S_real
+            new_nei = set(S_real.neighbors(n))
+            expand(new_curr, rem | (new_nei - new_curr))
 
-        # Prova ad aggiungere un candidato alla volta
-        # Itera su una copia perché potremmo modificare candidates_set
-        for node_to_add in list(candidates_set):
-            new_current_set = current_nodes_set | {node_to_add}
+    for start in all_nodes:
+        expand({start}, set(S_real.neighbors(start)))
 
-            # Nuovi candidati:
-            # 1. Quelli che erano già candidati (escluso node_to_add)
-            # 2. I vicini (con archi reali) di node_to_add che non sono già nel current_set
-            # Rimuovi node_to_add dai candidati rimanenti
-            remaining_candidates = candidates_set - {node_to_add}
-            # Trova i vicini reali del nodo aggiunto
-            neighbors_of_added = set(S_minutiae_real_edges.neighbors(node_to_add))
-            # Aggiungi solo i vicini che non sono già nel gruppo corrente
-            new_potential_candidates = neighbors_of_added - new_current_set
-
-            # Unisci i candidati rimanenti con i nuovi potenziali candidati
-            next_candidates = remaining_candidates | new_potential_candidates
-
-            # Chiamata ricorsiva
-            expand(new_current_set, next_candidates)
-
-
-    # Avvia l'espansione da ogni minuzia come punto di partenza
-    processed_starts = set() # Per ottimizzare se un nodo fa già parte di un risultato
-    for start_node in real_minutiae_nodes:
-         # Possiamo aggiungere un controllo per non iniziare da nodi già inclusi in risultati?
-         # Forse non necessario perché 'risultati_sets' gestisce i duplicati.
-         initial_candidates = set(S_minutiae_real_edges.neighbors(start_node))
-         expand({start_node}, initial_candidates)
-
-    # Converti i set di nodi trovati nel formato di output desiderato
-    # (tupla ordinata di nodi, sottografo indotto dall'originale S)
-    final_subgraphs = []
+    # 2) Ora filtriamo ogni sottografo togliendo gli 'added' inutili
+    final = []
     for node_set in risultati_sets:
-        nodes_tuple_sorted = tuple(sorted(list(node_set)))
-        # Induci il sottografo finale da S originale per mantenere tutti gli attributi/archi
-        subgraph_induced = S.subgraph(node_set).copy()
-        final_subgraphs.append((nodes_tuple_sorted, subgraph_induced))
+        # sottografo indotto completo (inclusi archi added)
+        subG = S.subgraph(node_set).copy()
+        # costruiamo il sotto‐grafo “reale” per il test di connettività
+        sub_real = nx.Graph()
+        sub_real.add_nodes_from(node_set)
+        for u, v, d in subG.edges(data=True):
+            if d.get('type') != 'added':
+                sub_real.add_edge(u, v)
 
-    return final_subgraphs
+        # elenco reali
+        real_nodes = [n for n in node_set if not is_added(n)]
+        # se meno di 2 reali, non serve aggiungere alcun added
+        to_remove = []
+        if len(real_nodes) >= 2:
+            # proviamo a rimuovere ciascun added: se i reali restano ancora connessi,
+            # quell'added non era necessario → lo tolgo
+            for v in node_set:
+                if is_added(v):
+                    # grafetto senza v
+                    Gm = sub_real.copy()
+                    Gm.remove_node(v)
+                    comp = Gm.subgraph(real_nodes)
+                    if nx.is_connected(comp):
+                        to_remove.append(v)
+
+        # nodo_set filtrato
+        kept = set(node_set) - set(to_remove)
+        # deve contenere ancora esattamente size reali
+        if sum(1 for n in kept if not is_added(n)) == size:
+            final_subG = subG.subgraph(kept).copy()
+            final.append((tuple(sorted(kept)), final_subG))
+
+
+        # # Print nodes and edges of first subG containing an added node
+        # for nodes, sg in final:
+        #     has_added = any(is_added(n) for n in nodes)
+        #     if has_added:
+        #         print("First subgraph with added node:")
+        #         print("Nodes:", list(sg.nodes()))
+        #         print("Edges:", list(sg.edges()))
+        #         break
+
+    return final
+
+
+
+import networkx as nx
+from multiprocessing import Pool, cpu_count
+
+
+def _expand_worker(args):
+    """
+    Worker function per espansione da un nodo di partenza.
+    Riceve una tupla (start, S, S_real, size) e restituisce un set di frozenset
+    contenenti i sottografi reali di dimensione `size` partendo da `start`.
+    """
+    start, S, S_real, size = args
+    risultati = set()
+
+    def is_added(n):
+        return S.nodes[n].get('type') == 'added'
+
+    def count_real(ns):
+        return sum(1 for x in ns if not is_added(x))
+
+    def expand(curr, cands):
+        r = count_real(curr)
+        if r == size:
+            risultati.add(frozenset(curr))
+            return
+        if r > size or not cands:
+            return
+        for n in list(cands):
+            if not is_added(n) and r + 1 > size:
+                continue
+            new_curr = curr | {n}
+            rem = cands - {n}
+            new_nei = set(S_real.neighbors(n))
+            expand(new_curr, rem | (new_nei - new_curr))
+
+    expand({start}, set(S_real.neighbors(start)))
+    return risultati
+
+
+def get_connected_subgraphs_of_minutiae_parallel(S, size=6, processes=None):
+    """
+    Versione parallelizzata di get_connected_subgraphs_of_minutiae.
+    Genera tutti i sottografi connessi di S contenenti esattamente `size` nodi reali,
+    eventualmente arricchiti con nodi 'added' come intermediari.
+
+    Args:
+        S (nx.Graph): grafo con nodi di tipo 'real' o 'added'.
+        size (int): numero esatto di nodi reali nel sottografo.
+        processes (int, optional): numero di processi da usare (default: numero di CPU).
+    Returns:
+        List[Tuple[Tuple[int,...], nx.Graph]]: lista di tuple (nodi, sottografo completo).
+    """
+    all_nodes = set(S.nodes())
+    if not all_nodes:
+        return []
+
+    # Pre-costruzione del grafo senza archi 'added'
+    S_real = nx.Graph()
+    S_real.add_nodes_from(all_nodes)
+    for u, v, d in S.edges(data=True):
+        if d.get('type') != 'added':
+            S_real.add_edge(u, v)
+
+    # Parallel map: espansione su ciascun nodo
+    procs = processes or cpu_count()
+    args = [(start, S, S_real, size) for start in all_nodes]
+    with Pool(processes=procs) as pool:
+        results = pool.map(_expand_worker, args)
+
+    # Unione e deduplicazione dei risultati
+    risultati_sets = set().union(*results)
+
+    # Fase di filtro: rimuovere i nodi 'added' non strettamente necessari
+    final = []
+    def is_added(n):
+        return S.nodes[n].get('type') == 'added'
+
+    for node_set in risultati_sets:
+        subG = S.subgraph(node_set).copy()
+        # real_nodes effettivi
+        real_nodes = [n for n in node_set if not is_added(n)]
+        to_remove = []
+
+        # Solo se ci sono almeno due reali ha senso controllare
+        if len(real_nodes) >= 2:
+            for v in list(node_set):
+                if is_added(v):
+                    # Rimuovo v dal sottografo completo
+                    Gm = subG.copy()
+                    Gm.remove_node(v)
+                    # Verifico che tutti i real_nodes siano ancora connessi tramite percorsi in Gm
+                    # (che include sia real che added residui)
+                    reachable = nx.node_connected_component(Gm, real_nodes[0])
+                    if set(real_nodes).issubset(reachable):
+                        to_remove.append(v)
+
+        # Mantengo solo i nodi non rimossi
+        kept = set(node_set) - set(to_remove)
+        # Verifico che ci siano ancora esattamente `size` nodi reali
+        if sum(1 for n in kept if not is_added(n)) == size:
+            final_subG = subG.subgraph(kept).copy()
+            final.append((tuple(sorted(kept)), final_subG))
+
+    return final

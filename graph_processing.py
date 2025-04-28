@@ -43,6 +43,7 @@ def single_source_shortest_paths_and_costs(graph, source, weight_func):
         # Usa nx.single_source_dijkstra che ritorna distanze e percorsi
         # Il parametro target=None fa sì che calcoli per tutti i nodi raggiungibili
         distances, paths = nx.single_source_dijkstra(graph, source, weight='temp_weight')
+        #! Può tornare utile il path per i nodi non raggiungibili?
 
     except nx.NetworkXNoPath:
         # Caso in cui non ci sono percorsi dal nodo source (es. isolato o disconnesso)
@@ -66,24 +67,28 @@ def single_source_shortest_paths_and_costs(graph, source, weight_func):
 
     return distances, paths
 
-def count_added_edges_in_path(graph, path):
+
+def count_intermediate_added_nodes(graph, path):
     """
-    Conta gli archi con type='added' in un dato percorso (lista di nodi).
-    Ritorna 0 se il percorso è vuoto o ha meno di 2 nodi.
+    Conta i nodi con type='added' in un percorso, ESCLUDENDO il primo e l'ultimo nodo.
+    Ritorna 0 se il percorso è vuoto o ha meno di 3 nodi.
     """
     count = 0
-    if not path or len(path) < 2:
+    if not path or len(path) < 3: # Servono almeno 3 nodi per avere un intermedio
         return 0
-    for i in range(len(path) - 1):
-        u, v = path[i], path[i+1]
-        # Controlla se l'arco esiste e se ha l'attributo 'type' impostato a 'added'
-        if graph.has_edge(u, v):
-            edge_data = graph.edges[u, v]
-            if isinstance(edge_data, dict) and edge_data.get('type') == 'added':
+    # Itera sui nodi INTERMEDI (dal secondo al penultimo)
+    for node_id in path[1:-1]:
+        try:
+            # Verifica se il nodo esiste e se ha il tipo 'added'
+            if graph.has_node(node_id) and graph.nodes[node_id].get('type') == 'added':
                 count += 1
-        else:
-             # Questo non dovrebbe succedere se il path è valido, ma aggiungiamo un controllo
-             print(f"Attenzione: Arco ({u}, {v}) del percorso non trovato nel grafo durante conteggio 'added'.")
+        except KeyError:
+             # Potrebbe mancare l'attributo 'type', consideralo non-added
+             # print(f"Attenzione: Nodo {node_id} nel percorso manca dell'attributo 'type'.")
+             pass
+        except Exception as e:
+             print(f"Errore nel controllare il tipo del nodo {node_id} nel percorso: {e}")
+             pass # Ignora il nodo in caso di errore
     return count
 
 def load_matrix_from_file(file_path):
@@ -249,7 +254,7 @@ def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
         M3 = [[float('inf')] * N for _ in range(N)]
         for i in range(N): M3[i][i] = 0.0
 
-    # Calcolo M1 e M_scavalcamenti (usando Dijkstra)
+    #! Calcolo M1 e M_scavalcamenti (usando Dijkstra)
     print("Calcolo M1 (costo shortest path) e M_scavalcamenti (conta 'added')...")
     # Itera usando gli ID dei nodi presenti nel grafo
     for node_start_id in node_list_for_matrix:
@@ -264,14 +269,15 @@ def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
             idx_end = node_map.get(node_end_id)
             if idx_end is None: continue # Salta se l'ID destinazione non ha indice
 
-            # Salva il costo in M1
+            #! Popolamento di M1
             M1[idx_start][idx_end] = dist_val
 
-            # Calcola e salva il numero di scavalcamenti
+
+            #! Popolamento di M_scavalcamenti
             current_path = paths.get(node_end_id) # Ottieni il percorso corrispondente
             if current_path:
-                added_count = count_added_edges_in_path(G, current_path)
-                M_scavalcamenti[idx_start][idx_end] = added_count
+                added_node_count = count_intermediate_added_nodes(G, current_path)
+                M_scavalcamenti[idx_start][idx_end] = added_node_count
             else:
                 # Se non c'è percorso, la distanza è inf, mettiamo inf anche per scavalcamenti
                  M_scavalcamenti[idx_start][idx_end] = float('inf')
