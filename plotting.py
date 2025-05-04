@@ -108,14 +108,19 @@ def plot_and_save_subgraph(S, G_original, source_node, output_folder, filename):
     plt.close()
 
 
-def plot_mapping(S_A, S_B, G_A, G_B, mapping, output_folder, filename):
+# def plot_mapping(S_A, S_B, G_A, G_B, mapping, output_folder, filename):
+#     """
+#     Visualizza il mapping tra due sottografi S_A e S_B.
+#     - Usa posizioni dai grafi originali G_A e G_B.
+#     - Disegna solo archi non 'added'.
+#     - Colora nodi base al tipo (FINAL_PLOT_NODE_COLOR_MAP).
+#     - Evidenzia i nodi mappati (chiavi e valori di 'mapping') in rosso.
+#     - Aggiunge etichette (indici) ai nodi.
+#     """
+def plot_mapping(S_A, S_B, G_A, G_B, mapping, output_folder, filename, score=None):
     """
-    Visualizza il mapping tra due sottografi S_A e S_B.
-    - Usa posizioni dai grafi originali G_A e G_B.
-    - Disegna solo archi non 'added'.
-    - Colora nodi base al tipo (FINAL_PLOT_NODE_COLOR_MAP).
-    - Evidenzia i nodi mappati (chiavi e valori di 'mapping') in rosso.
-    - Aggiunge etichette (indici) ai nodi.
+    Plotta i due sottografi uno accanto all'altro con i nodi mappati colorati allo stesso modo.
+    Include anche lo score del match se fornito.
     """
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 9))
 
@@ -215,12 +220,18 @@ def plot_mapping(S_A, S_B, G_A, G_B, mapping, output_folder, filename):
     plt.tight_layout()
     os.makedirs(output_folder, exist_ok=True)
     output_path = os.path.join(output_folder, filename)
-    try:
-        plt.savefig(output_path, dpi=500, bbox_inches='tight')
-        print(f"Mapping visualizzato salvato in: {output_path}")
-    except Exception as e:
-        print(f"Errore durante il salvataggio di {output_path}: {e}")
-    plt.close()
+    # try:
+    #     plt.savefig(output_path, dpi=500, bbox_inches='tight')
+    #     print(f"Mapping visualizzato salvato in: {output_path}")
+    # except Exception as e:
+    #     print(f"Errore durante il salvataggio di {output_path}: {e}")
+    # plt.close()
+    if score is not None:
+        plt.suptitle(f"Match Score: {score:.4f}", fontsize=16)
+    
+    # Salva il plot
+    plt.savefig(os.path.join(output_folder, filename), dpi=800, bbox_inches='tight')
+    plt.close(fig)
 
 
 def plot_final_graphs(

@@ -20,12 +20,12 @@ OUTPUT_FOLDER_FINAL_GRAPHS = "/Users/riccardotortorelli/Desktop/Tesi/Output_Fina
 
 # --- Parametri Configurabili ---
 RADIUS_PERCENTAGE_A = 0.06 # Percentuale della max distanza euclidea per il raggio in A
-RADIUS_PERCENTAGE_B = 0.10 # Percentuale della max distanza euclidea per il raggio in B
+RADIUS_PERCENTAGE_B = 0.1 # Percentuale della max distanza euclidea per il raggio in B
 MINUTIAE_SUBGRAPH_SIZE = 6 # Dimensione dei sotto-sottografi di minuzie da cercare
 MIN_MATCH_NODES = 4        # Numero minimo di nodi matchati per considerare un match valido (>=4)
-MATCHING_COST_THRESHOLD_REL = 0.6 # Soglia differenza relativa per M1 cost (0.6 = 60% di tolleranza)
+MATCHING_COST_THRESHOLD_REL = 0.7 # Soglia differenza relativa per M1 cost (0.6 = 60% di tolleranza)
 MATCHING_MAX_RIDGE_DIFF = 2     # Soglia differenza assoluta per M_scavalcamenti
-MATCHING_ANGLE_TOLERANCE_DEGREES = 30 # Soglia tolleranza angolare in gradi (es. +/- 35 gradi)
+MATCHING_ANGLE_TOLERANCE_DEGREES = 40 # Soglia tolleranza angolare in gradi (es. +/- 35 gradi)
 
 def find_max_finite_distance(matrix):
     """Trova il massimo valore finito in una matrice di distanze (usato per M3)."""
@@ -37,6 +37,59 @@ def find_max_finite_distance(matrix):
             if isinstance(val, (int, float)) and val != float('inf') and val > max_dist:
                 max_dist = val
     return max_dist if max_dist > 0 else 100.0
+
+# Puoi aggiungere questa funzione in main_script.py o creare un nuovo script
+
+def analyze_pair_details(all_matches, match_id, pair):
+    """
+    Analizza e visualizza i dettagli di una specifica coppia di nodi in un match.
+    
+    Args:
+        all_matches: lista di tutti i match
+        match_id: ID del match da analizzare
+        pair: tupla (nodeA1, nodeA2) che identifica la coppia
+    """
+    # Trova il match specifico
+    match = next((m for m in all_matches if m['id'] == match_id), None)
+    if not match:
+        print(f"Match #{match_id} non trovato.")
+        return
+    
+    # Trova i dettagli della coppia
+    if pair not in match['pair_details']:
+        print(f"Coppia {pair} non trovata nel match #{match_id}.")
+        return
+    
+    details = match['pair_details'][pair]
+    mapping = match['mapping']
+    nodeA1, nodeA2 = pair
+    nodeB1, nodeB2 = mapping[nodeA1], mapping[nodeA2]
+    
+    print(f"\n--- Analisi Dettagliata Coppia ({nodeA1}, {nodeA2}) → ({nodeB1}, {nodeB2}) ---")
+    print(f"Score totale coppia: {details['total_score']:.4f}")
+    
+    # Dettagli scavalcamenti
+    print("\nScavalcamenti:")
+    print(f"  Grafo A: {details.get('ridge_A', 'N/A')}")
+    print(f"  Grafo B: {details.get('ridge_B', 'N/A')}")
+    print(f"  Score: {details.get('ridge_score', 'N/A'):.4f}")
+    
+    # Dettagli costi
+    print("\nCosti percorso:")
+    print(f"  Grafo A: {details.get('cost_A', 'N/A')}")
+    print(f"  Grafo B: {details.get('cost_B', 'N/A')}")
+    print(f"  Score: {details.get('cost_score', 'N/A'):.4f}")
+    
+    # Dettagli angoli
+    print("\nAngoli:")
+    print(f"  Grafo A: {details.get('angle_A', 'N/A'):.2f}°")
+    print(f"  Grafo B: {details.get('angle_B', 'N/A'):.2f}°")
+    print(f"  Differenza: {details.get('angle_diff', 'N/A'):.2f}°")
+    print(f"  Score: {details.get('angle_score', 'N/A'):.4f}")
+    
+    # Eventuali errori
+    if 'error' in details:
+        print(f"\nErrori: {details['error']}")
 
 def main():
     # --- Crea una cartella di output unica per questa esecuzione (solo per output diversi dalle matrici) ---
@@ -260,14 +313,31 @@ def main():
     
     total_pairs_to_check = len(sub_subgraphs_A) * len(sub_subgraphs_B)
     checked_count = 0
-    
+
+        
+    print(f"\n--- Risultato Matching ---")
+    print(f"Totale combinazioni di sotto-sottografi testate: {checked_count}")
+    print(f"Numero di match validi trovati (>= {MIN_MATCH_NODES} nodi): {match_counter}")
+    print(f"Nodi totali coinvolti in match validi in A: {len(matched_nodes_A_global)}")
+    print(f"Nodi totali coinvolti in match validi in B: {len(matched_nodes_B_global)}")
+    # In main_script.py, sostituisci il ciclo di matching esistente con questo:
+
+    print(f"\n--- Esecuzione Matching (M1 Rel={MATCHING_COST_THRESHOLD_REL}, Scaval Abs={MATCHING_MAX_RIDGE_DIFF}, Ang Tol={MATCHING_ANGLE_TOLERANCE_DEGREES}) ---")
+    match_counter = 0
+    all_matches = []
+    matched_nodes_A_global = set()
+    matched_nodes_B_global = set()
+
+    total_pairs_to_check = len(sub_subgraphs_A) * len(sub_subgraphs_B)
+    checked_count = 0
+
     # Teniamo traccia dei mapping già trovati per evitare duplicati
     found_mappings = set()
 
     for idxA, (nodesA, subG_A) in enumerate(sub_subgraphs_A):
         for idxB, (nodesB, subG_B) in enumerate(sub_subgraphs_B):
             # Esegui il matching tra i due sottografi
-            success, mapping = match_subgraph(
+            success, mapping, score, pair_details = match_subgraph(
                 subG_A, subG_B,
                 M1_A, M1_B,
                 M_scavalcamenti_A, M_scavalcamenti_B,
@@ -301,40 +371,48 @@ def main():
             matched_nodes_A_global.update(matched_nodesA)
             matched_nodes_B_global.update(matched_nodesB)
 
+            # Crea un risultato con lo score
+            match_result = {
+                'id': match_counter,
+                'mapping': mapping,
+                'nodes_A': matched_nodesA,
+                'nodes_B': matched_nodesB,
+                'score': score,
+                'pair_details': pair_details,
+                'subG_A': subG_A,
+                'subG_B': subG_B,
+                'start_nodeA': nodesA[0],
+                'start_nodeB': nodesB[0]
+            }
+            
+            all_matches.append(match_result)
+
             # Stampa informazioni sul match
-            print(f"\nMatch #{match_counter} Trovato!")
+            print(f"\nMatch #{match_counter} Trovato! Score: {score:.4f}")
             print(f"  Sottografo A (nodi {matched_nodesA}):")
             print(f"  Sottografo B (nodi {matched_nodesB}):")
             print(f"  Mapping: {mapping}")
 
-            # Salva nei risultati
-            all_matches.append({
-                'mapping': mapping,
-                'nodes_A': matched_nodesA,
-                'nodes_B': matched_nodesB
-            })
+    # Ordina i match per score (dal migliore al peggiore)
+    all_matches.sort(key=lambda x: x['score'], reverse=True)
 
-            # Determina nodi di partenza per il nome del file
-            start_nodeA = nodesA[0]
-            start_nodeB = nodesB[0]
+    # Stampare i risultati ordinati
+    print(f"\n--- Graduatoria dei {len(all_matches)} Match Trovati ---")
+    for i, match in enumerate(all_matches):
+        print(f"{i+1}. Match #{match['id']} - Score: {match['score']:.4f} - Nodi A: {match['nodes_A']}, Nodi B: {match['nodes_B']}")
 
-            # Chiama la funzione di plot
-            plot_mapping(
-                subG_A, subG_B,
-                G_A, G_B,
-                mapping,
-                OUTPUT_FOLDER_SUBGRAPHS,
-                f"match_{match_counter}_A({len(matched_nodesA)}of{MINUTIAE_SUBGRAPH_SIZE})_"
-                f"{start_nodeA}_vs_B({len(matched_nodesB)}of{MINUTIAE_SUBGRAPH_SIZE})_"
-                f"{start_nodeB}.png"
-            )
-    
-    print(f"\n--- Risultato Matching ---")
-    print(f"Totale combinazioni di sotto-sottografi testate: {checked_count}")
-    print(f"Numero di match validi trovati (>= {MIN_MATCH_NODES} nodi): {match_counter}")
-    print(f"Nodi totali coinvolti in match validi in A: {len(matched_nodes_A_global)}")
-    print(f"Nodi totali coinvolti in match validi in B: {len(matched_nodes_B_global)}")
-
+    # Poi procedi con il plotting come prima, ma usa all_matches ordinato
+    for match in all_matches:
+        # Chiama la funzione di plot
+        plot_mapping(
+            match['subG_A'], match['subG_B'],
+            G_A, G_B,
+            match['mapping'],
+            OUTPUT_FOLDER_SUBGRAPHS,
+            f"match_{match['id']}_score_{match['score']:.4f}_A({len(match['nodes_A'])}of{MINUTIAE_SUBGRAPH_SIZE})_"
+            f"{match['start_nodeA']}_vs_B({len(match['nodes_B'])}of{MINUTIAE_SUBGRAPH_SIZE})_"
+            f"{match['start_nodeB']}.png"
+        )
 
     # --- Stampa Finale dei Grafi Completi con Evidenziazione ---
     print("\n--- Generazione Plot Finale ---")

@@ -123,10 +123,130 @@ def check_edge_compatibility(G_A, G_B, mapping):
     
     return True
 
+def compute_complete_matching_score(G_A, G_B, mapping, M1_A, M1_B, M_scavalcamenti_A, M_scavalcamenti_B, 
+                                   cost_weight=1.0, ridge_weight=1.0, angle_weight=1.0):
+    """
+    Calcola uno score complessivo confrontando TUTTE le coppie di nodi mappati.
+    Il punteggio tiene conto di:
+    - Differenza nei costi del percorso minimo
+    - Differenza nel numero di scavalcamenti (nodi 'added')
+    - Differenza negli angoli tra coppie di nodi
+    
+    Returns:
+        float: Score complessivo tra 0.0 (match pessimo) e 1.0 (match perfetto)
+        dict: Dettagli per ogni coppia di nodi
+    """
+    nodes_A = list(mapping.keys())
+    total_pairs = 0
+    total_score = 0
+    pair_details = {}
+    
+    # Pesi normalizzati
+    sum_weights = cost_weight + ridge_weight + angle_weight
+    cost_w = cost_weight / sum_weights if sum_weights > 0 else 1/3
+    ridge_w = ridge_weight / sum_weights if sum_weights > 0 else 1/3
+    angle_w = angle_weight / sum_weights if sum_weights > 0 else 1/3
+    
+    for i in range(len(nodes_A)):
+        nodeA1 = nodes_A[i]
+        nodeB1 = mapping[nodeA1]
+        
+        for j in range(i+1, len(nodes_A)):
+            nodeA2 = nodes_A[j]
+            nodeB2 = mapping[nodeA2]
+            
+            # Coppia identificata da (nodeA1, nodeA2)
+            pair_id = (nodeA1, nodeA2)
+            pair_details[pair_id] = {}
+            
+            # 1. Score per gli scavalcamenti
+            try:
+                scA = float(M_scavalcamenti_A[nodeA1][nodeA2])
+                scB = float(M_scavalcamenti_B[nodeB1][nodeB2])
+                
+                # Gestione infinito
+                if scA == float('inf') and scB == float('inf'):
+                    sc_score = 1.0  # Perfetta compatibilità
+                elif scA == float('inf') or scB == float('inf'):
+                    sc_score = 0.0  # Totale incompatibilità
+                else:
+                    # Normalizza la differenza
+                    max_sc = max(1, max(scA, scB))
+                    sc_diff = abs(scA - scB)
+                    sc_score = max(0.0, 1.0 - (sc_diff / max_sc))
+                
+                pair_details[pair_id]['ridge_score'] = sc_score
+                pair_details[pair_id]['ridge_A'] = scA
+                pair_details[pair_id]['ridge_B'] = scB
+            except (IndexError, TypeError, ValueError):
+                # Gestione errori (indici mancanti o valori non validi)
+                sc_score = 0.5  # Valore neutro
+                pair_details[pair_id]['ridge_score'] = sc_score
+                pair_details[pair_id]['error'] = "ridge_calc_error"
+            
+            # 2. Score per i costi di percorso
+            try:
+                costA = float(M1_A[nodeA1][nodeA2])
+                costB = float(M1_B[nodeB1][nodeB2])
+                
+                # Gestione infinito
+                if costA == float('inf') and costB == float('inf'):
+                    cost_score = 1.0
+                elif costA == float('inf') or costB == float('inf'):
+                    cost_score = 0.0
+                else:
+                    max_cost = max(0.0001, max(costA, costB))
+                    cost_diff = abs(costA - costB)
+                    cost_score = max(0.0, 1.0 - (cost_diff / max_cost))
+                
+                pair_details[pair_id]['cost_score'] = cost_score
+                pair_details[pair_id]['cost_A'] = costA
+                pair_details[pair_id]['cost_B'] = costB
+            except (IndexError, TypeError, ValueError):
+                cost_score = 0.5
+                pair_details[pair_id]['cost_score'] = cost_score
+                pair_details[pair_id]['error'] = "cost_calc_error"
+            
+            # 3. Score per gli angoli
+            try:
+                posA1 = G_A.nodes[nodeA1]['pos']
+                posA2 = G_A.nodes[nodeA2]['pos']
+                posB1 = G_B.nodes[nodeB1]['pos']
+                posB2 = G_B.nodes[nodeB2]['pos']
+                
+                angA = calculate_angle(posA1, posA2)
+                angB = calculate_angle(posB1, posB2)
+                
+                # Calcola la differenza angolare minima (considerando che 359° e 1° sono vicini)
+                ang_diff = min(abs(angA - angB), 360.0 - abs(angA - angB))
+                angle_score = max(0.0, 1.0 - (ang_diff / 180.0))
+                
+                pair_details[pair_id]['angle_score'] = angle_score
+                pair_details[pair_id]['angle_A'] = angA
+                pair_details[pair_id]['angle_B'] = angB
+                pair_details[pair_id]['angle_diff'] = ang_diff
+            except (KeyError, TypeError, ValueError):
+                angle_score = 0.5
+                pair_details[pair_id]['angle_score'] = angle_score
+                pair_details[pair_id]['error'] = "angle_calc_error"
+            
+            # Score complessivo per questa coppia (pesato)
+            pair_score = (ridge_w * sc_score + cost_w * cost_score + angle_w * angle_score)
+            pair_details[pair_id]['total_score'] = pair_score
+            
+            total_score += pair_score
+            total_pairs += 1
+    
+    # Score medio finale (0-1)
+    final_score = total_score / total_pairs if total_pairs > 0 else 0
+    
+    return final_score, pair_details
+
 def match_subgraph(G_A, G_B, M1_A, M1_B, M_scavalcamenti_A, M_scavalcamenti_B, 
                   cost_threshold_rel=0.5, max_ridge_diff=1, angle_tolerance_degrees=30):
     """
     Verifica se due sottografi sono considerabili match secondo i criteri specificati.
+    Calcola anche lo score complessivo per tutte le coppie di nodi mappati.
     
     Args:
         G_A, G_B: i due sottografi da confrontare
@@ -139,27 +259,21 @@ def match_subgraph(G_A, G_B, M1_A, M1_B, M_scavalcamenti_A, M_scavalcamenti_B,
     Returns:
         success: True se i sottografi sono match, False altrimenti
         mapping: dizionario che mappa i nodi di G_A in G_B
+        score: punteggio complessivo del match (0-1, dove 1 è perfetto)
+        details: dettagli del punteggio per ogni coppia
     """
-
-
-    # Verifica preliminare: almeno uno dei due sottografi deve contenere nodi added
-    # has_added_A = any(not is_real_node(G_A, node) for node in G_A.nodes())
-    # has_added_B = any(not is_real_node(G_B, node) for node in G_B.nodes())
-    
-    # if not (has_added_A or has_added_B):
-    #     return False, {}
-
     # Ottieni tutti i nodi reali
     real_nodes_A = get_real_nodes(G_A)
     real_nodes_B = get_real_nodes(G_B)
     
     # Se il numero di nodi reali è diverso, non possono essere match
     if len(real_nodes_A) != len(real_nodes_B):
-        return False, {}
+        return False, {}, 0.0, {}
     
     # Prova tutte le permutazioni possibili di mapping
-    # Nota: per grafi grandi, questo può essere inefficiente e potrebbe richiedere
-    # un approccio più euristico o di backtracking ottimizzato.
+    best_mapping = None
+    best_score = -1
+    best_details = {}
     
     def try_mapping(mapping=None, idx=0):
         if mapping is None:
@@ -186,7 +300,6 @@ def match_subgraph(G_A, G_B, M1_A, M1_B, M_scavalcamenti_A, M_scavalcamenti_B,
                         if not is_ridge_jump_similar(scA, scB, max_ridge_diff):
                             return False, None
                     except (KeyError, TypeError):
-                        # Se non abbiamo informazioni sugli scavalcamenti, ignoriamo questa verifica
                         pass
                     
                     # Verifica i costi
@@ -196,7 +309,6 @@ def match_subgraph(G_A, G_B, M1_A, M1_B, M_scavalcamenti_A, M_scavalcamenti_B,
                         if not is_cost_similar(costA, costB, cost_threshold_rel):
                             return False, None
                     except (KeyError, TypeError):
-                        # Se non abbiamo informazioni sui costi, ignoriamo questa verifica
                         pass
                     
                     # Verifica gli angoli
@@ -210,7 +322,6 @@ def match_subgraph(G_A, G_B, M1_A, M1_B, M_scavalcamenti_A, M_scavalcamenti_B,
                         if not is_angle_similar(angA, angB, angle_tolerance_degrees):
                             return False, None
                     except (KeyError, TypeError):
-                        # Se non abbiamo informazioni sulla posizione, ignoriamo questa verifica
                         pass
             
             # Se arriviamo qui, il mapping è valido
@@ -242,23 +353,12 @@ def match_subgraph(G_A, G_B, M1_A, M1_B, M_scavalcamenti_A, M_scavalcamenti_B,
     # Avvia il processo di mapping
     success, mapping = try_mapping()
     
-    # Verifica aggiuntiva: almeno uno dei due sottografi deve contenere nodi added
-    # if success:
-    #     has_added_A = any(not is_real_node(G_A, node) for node in G_A.nodes())
-    #     has_added_B = any(not is_real_node(G_B, node) for node in G_B.nodes())
-        
-    #     if not (has_added_A or has_added_B):
-    #         return False, {}
-    
-    return success, mapping
-
-def match_subgraphs_wrapper(G_A, G_B, M1_A, M1_B, M_scavalcamenti_A, M_scavalcamenti_B,
-                          cost_threshold_rel=0.5, max_ridge_diff=1, angle_tolerance_degrees=30):
-    """
-    Wrapper per match_subgraph che restituisce solo il risultato booleano.
-    Restituisce True solo se i sottografi sono match e almeno uno dei due contiene nodi added.
-    """
-    success, _ = match_subgraph(G_A, G_B, M1_A, M1_B, M_scavalcamenti_A, M_scavalcamenti_B,
-                             cost_threshold_rel, max_ridge_diff, angle_tolerance_degrees)
-    return success
+    # Se abbiamo trovato un mapping valido, calcola lo score completo
+    if success:
+        score, details = compute_complete_matching_score(
+            G_A, G_B, mapping, M1_A, M1_B, M_scavalcamenti_A, M_scavalcamenti_B
+        )
+        return success, mapping, score, details
+    else:
+        return False, {}, 0.0, {}
 
