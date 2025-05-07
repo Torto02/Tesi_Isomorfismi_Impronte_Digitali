@@ -19,13 +19,13 @@ OUTPUT_FOLDER_SUBGRAPHS = "/Users/riccardotortorelli/Desktop/Tesi/Output_Subgrap
 OUTPUT_FOLDER_FINAL_GRAPHS = "/Users/riccardotortorelli/Desktop/Tesi/Output_Final_Graphs"
 
 # --- Parametri Configurabili ---
-RADIUS_PERCENTAGE_A = 0.06 # Percentuale della max distanza euclidea per il raggio in A
-RADIUS_PERCENTAGE_B = 0.1 # Percentuale della max distanza euclidea per il raggio in B
+RADIUS_PERCENTAGE_A = 0.1 # Percentuale della max distanza euclidea per il raggio in A
+RADIUS_PERCENTAGE_B = 0.12 # Percentuale della max distanza euclidea per il raggio in B
 MINUTIAE_SUBGRAPH_SIZE = 6 # Dimensione dei sotto-sottografi di minuzie da cercare
 MIN_MATCH_NODES = 4        # Numero minimo di nodi matchati per considerare un match valido (>=4)
 MATCHING_COST_THRESHOLD_REL = 0.7 # Soglia differenza relativa per M1 cost (0.6 = 60% di tolleranza)
 MATCHING_MAX_RIDGE_DIFF = 2     # Soglia differenza assoluta per M_scavalcamenti
-MATCHING_ANGLE_TOLERANCE_DEGREES = 40 # Soglia tolleranza angolare in gradi (es. +/- 35 gradi)
+MATCHING_ANGLE_TOLERANCE_DEGREES = 30 # Soglia tolleranza angolare in gradi (es. +/- 35 gradi)
 
 def find_max_finite_distance(matrix):
     """Trova il massimo valore finito in una matrice di distanze (usato per M3)."""

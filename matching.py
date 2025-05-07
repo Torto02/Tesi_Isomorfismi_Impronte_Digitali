@@ -1,4 +1,3 @@
-
 import networkx as nx
 import math
 from collections import deque
@@ -39,9 +38,9 @@ def get_real_neighbors_via_added(G, node):
                 if nbr not in visited and not is_real_node(G, nbr):
                     visited.add(nbr)
                     queue.append(nbr)
-            if found:
-                break
+            
     return real_neighbors
+
 
 def calculate_angle(pos1, pos2):
     """Calcola l'angolo tra due punti in gradi"""
@@ -51,6 +50,78 @@ def calculate_angle(pos1, pos2):
         return 0.0
     angle_rad = math.atan2(dy, dx)
     return math.degrees(angle_rad) % 360
+
+
+def is_angle_similar(angleA, angleB, tolerance_degrees=30):
+    """Verifica se due angoli sono simili entro una tolleranza"""
+    if angleA is None or angleB is None:
+        return False
+    diff = abs(angleA - angleB)
+    angular_distance = min(diff, 360.0 - diff)
+    return angular_distance <= tolerance_degrees
+
+
+def find_path_via_added(G, source, target):
+    """
+    Trova un percorso minimo da source a target attraversando solo nodi 'added'
+    tra real nodes. Restituisce la lista di nodi del percorso se esiste.
+    """
+    # BFS che evita di passare per real nodes diversi da source e target
+    visited = {source}
+    queue = deque([[source]])
+    while queue:
+        path = queue.popleft()
+        node = path[-1]
+        if node == target:
+            return path
+        for nbr in G.neighbors(node):
+            if nbr in visited:
+                continue
+            # consentiamo real only se è il target
+            if is_real_node(G, nbr) and nbr != target:
+                continue
+            visited.add(nbr)
+            queue.append(path + [nbr])
+    return None
+
+
+def angle_along_path(G, source, target):
+    """
+    Calcola l'angolo iniziale lungo il percorso da source a target,
+    considerando il primo segmento (anche via added).
+    """
+    path = None
+    if G.has_edge(source, target):
+        # percorso diretto
+        return calculate_angle(G.nodes[source]['pos'], G.nodes[target]['pos'])
+    # altrimenti cerca percorso via added
+    path = find_path_via_added(G, source, target)
+    if path and len(path) >= 2:
+        next_node = path[1]
+        return calculate_angle(G.nodes[source]['pos'], G.nodes[next_node]['pos'])
+    return None
+
+
+def check_edge_compatibility(G_A, G_B, mapping, angle_tolerance=30):
+    """
+    Verifica se le connessioni tra i nodi mappati sono compatibili.
+    Ora include verifica dell'angolo lungo il percorso diretto o via added.
+    """
+    for nodeA, nodeB in mapping.items():
+        neighborsA = get_real_neighbors_via_added(G_A, nodeA)
+        neighborsB = get_real_neighbors_via_added(G_B, nodeB)
+        for nA in neighborsA:
+            if nA in mapping:
+                nB = mapping[nA]
+                # 1) esistenza del percorso
+                if nB not in neighborsB:
+                    return False
+                # 2) verifica angolo lungo i percorsi
+                angA = angle_along_path(G_A, nodeA, nA)
+                angB = angle_along_path(G_B, nodeB, nB)
+                if not is_angle_similar(angA, angB, tolerance_degrees=angle_tolerance):
+                    return False
+    return True
 
 def is_angle_similar(angleA, angleB, tolerance_degrees=30):
     """Verifica se due angoli sono simili entro una tolleranza"""
@@ -101,27 +172,6 @@ def check_node_compatibility(G_A, G_B, nodeA, nodeB):
     typeA = G_A.nodes[nodeA].get('type')
     typeB = G_B.nodes[nodeB].get('type')
     return typeA == typeB
-
-def check_edge_compatibility(G_A, G_B, mapping):
-    """
-    Verifica se le connessioni tra i nodi mappati sono compatibili.
-    Considera equivalenti le connessioni dirette e quelle tramite nodi added.
-    """
-    for nodeA, nodeB in mapping.items():
-        # Ottieni i vicini reali di nodeA (sia diretti che tramite added)
-        neighborsA = get_real_neighbors_via_added(G_A, nodeA)
-        
-        # Ottieni i vicini reali di nodeB (sia diretti che tramite added)
-        neighborsB = get_real_neighbors_via_added(G_B, nodeB)
-        
-        # Per ogni vicino di A che è anche mappato, verifica che esista la corrispondenza in B
-        for nA in neighborsA:
-            if nA in mapping:
-                nB = mapping[nA]
-                if nB not in neighborsB:
-                    return False
-    
-    return True
 
 def compute_complete_matching_score(G_A, G_B, mapping, M1_A, M1_B, M_scavalcamenti_A, M_scavalcamenti_B, 
                                    cost_weight=1.0, ridge_weight=1.0, angle_weight=1.0):
