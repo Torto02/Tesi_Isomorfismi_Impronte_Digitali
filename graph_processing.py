@@ -129,7 +129,7 @@ def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
     Rimuove M2 e la vecchia M4.
 
     Ritorna:
-        tuple: (G, M1, M_scavalcamenti, M3) o (None, None, None, None) in caso di errore critico.
+        tuple: (G, M1, M_scavalcamenti, M3, node_list_for_matrix) o (None, None, None, None, None) in caso di errore critico.
     """
     # Carica i file JSON
     nodes_file = os.path.join(folder_path, "nodes_graph.json")
@@ -137,7 +137,7 @@ def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
 
     if not os.path.exists(nodes_file) or not os.path.exists(edges_file):
         print(f"Errore: File nodes_graph.json o edges_graph.json non trovati in {folder_path}.")
-        return None, None, None, None
+        return None, None, None, None, None
 
     # Cartella di output per le matrici specifica per questa impronta
     impronta_nome = os.path.basename(folder_path)
@@ -194,12 +194,12 @@ def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
                 print(f"Attenzione: arco con nodi {edge['nodes']} non valido (uno o entrambi i nodi non esistono nel grafo). Arco ignorato.")
 
     except Exception as e:
-        print(f"Errore critico durante la costruzione del grafo da {folder_path}: {e}")
-        return None, None, None, None
+        print(f"Errore durante la costruzione del grafo G per {folder_path}: {e}")
+        return None, None, None, None, None
 
     if N == 0:
-        print(f"Errore: Grafo vuoto per {impronta_nome}.")
-        return G, [], [], [] # Ritorna matrici vuote se il grafo è vuoto
+        print(f"Grafo G per {folder_path} è vuoto o non ha nodi reali. Impossibile procedere.")
+        return None, None, None, None, None
 
     # --- Caricamento o Calcolo Matrici ---
 
@@ -210,18 +210,10 @@ def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
 
     # Verifica se tutte le matrici necessarie sono state caricate con successo
     if M1 is not None and M_scavalcamenti is not None and M3 is not None:
-         # Verifica anche le dimensioni per sicurezza
-         valid_dims = (len(M1) == N and len(M1[0]) == N and
-                       len(M_scavalcamenti) == N and len(M_scavalcamenti[0]) == N and
-                       len(M3) == N and len(M3[0]) == N)
-         if valid_dims:
-             print(f"\nMatrici M1, M_scavalcamenti, M3 già esistenti e valide per {impronta_nome}, caricamento completato.")
-             return G, M1, M_scavalcamenti, M3
-         else:
-             print(f"\nDimensioni matrici caricate non valide per {impronta_nome}. Ricalcolo...")
-             M1, M_scavalcamenti, M3 = None, None, None # Forza ricalcolo
+         print(f"Matrici M1, M_scavalcamenti, M3 caricate da file per {impronta_nome}.")
+         return G, M1, M_scavalcamenti, M3, node_list_for_matrix # Aggiunto node_list_for_matrix
     else:
-        print(f"\nUna o più matrici non trovate o non valide per {impronta_nome}. Ricalcolo...")
+        print(f"Almeno una matrice non trovata o non valida per {impronta_nome}. Procedo con il calcolo.")
         # Non è necessario impostare a None qui, il codice successivo lo gestirà
 
     # --- Calcolo Matrici (se non caricate) ---
@@ -230,17 +222,20 @@ def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
 
     # Funzione peso per M1 (shortest path cost)
     def weight_function_m1(u, v, d):
-        # d è il dizionario attributi dell'arco G[u][v]
-        arco_type = d.get('type') if isinstance(d, dict) else 'unknown'
-        if arco_type == 'added':
-            return 1.0
-        elif arco_type == 'border':
-            return 5.0
-        elif arco_type == 'ridge': # Tipo 'ridge' o altri considerati "reali"
-            return 0.0001 # Costo molto basso per favorire questi archi
+        # d è il dizionario degli attributi dell'arco (u,v)
+        costo = d.get('cost', float('inf')) # Default a 'inf' se 'cost' non esiste
+        arco_type = d.get('type', 'unknown')
+
+        if arco_type == 'real':
+            return costo if costo is not None else float('inf')
+        elif arco_type == 'added':
+            # Per gli archi 'added', il costo è solitamente piccolo o nullo,
+            # a meno che non si voglia penalizzarli.
+            # Se 'cost' non è definito per 'added', si potrebbe usare un valore di default.
+            return costo if costo is not None else 0.1 # Esempio: costo piccolo per 'added'
         else: # Tipi sconosciuti o archi senza attributi
              # print(f"Attenzione: Tipo arco non gestito o dati mancanti per ({u},{v}). Tipo: {arco_type}. Assegnato peso alto.")
-             return 1000.0 # Assegna un costo alto per penalizzare
+            return float('inf') # Penalizza fortemente archi non riconosciuti
 
 
     # Inizializza matrici con 'inf' solo se non sono state caricate
@@ -284,31 +279,19 @@ def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
 
 
     # Calcolo M3 (euclidea pura) - Assicurati che venga calcolata solo se necessario
-    if M3[0][1] == float('inf'): # Controlla se M3 è stata inizializzata ma non calcolata
-        print("Calcolo M3 (distanza euclidea)...")
-        coords = nx.get_node_attributes(G, 'pos')
-        # Usa node_list_for_matrix per iterare nell'ordine corretto
-        for i_idx, i_node_id in enumerate(node_list_for_matrix):
-            for j_idx, j_node_id in enumerate(node_list_for_matrix):
-                if i_idx == j_idx:
-                    M3[i_idx][j_idx] = 0.0
+    if M3[0][1] == float('inf'): # Verifica se M3 necessita di calcolo
+        print("Calcolo M3 (distanze euclidee)...")
+        for i, node_start_id in enumerate(node_list_for_matrix):
+            pos_start = G.nodes[node_start_id]['pos']
+            for j, node_end_id in enumerate(node_list_for_matrix):
+                if i == j:
+                    M3[i][j] = 0.0
                 else:
-                    try:
-                        pos_i = coords[i_node_id]
-                        pos_j = coords[j_node_id]
-                        M3[i_idx][j_idx] = math.dist(pos_i, pos_j)
-                    except KeyError:
-                        print(f"Attenzione: Coordinate mancanti per nodi {i_node_id} o {j_node_id} in M3.")
-                        M3[i_idx][j_idx] = float('inf') # O gestisci diversamente
+                    pos_end = G.nodes[node_end_id]['pos']
+                    M3[i][j] = math.dist(pos_start, pos_end)
+        save_matrix_to_file(M3, m3_path)
+        print(f"Matrice M3 salvata in {m3_path}")
 
-
-    # --- Salvataggio Matrici Calcolate ---
-    print("Salvataggio matrici calcolate...")
-    save_matrix_to_file(M1, m1_path)
-    save_matrix_to_file(M_scavalcamenti, m_scavalcamenti_path)
-    save_matrix_to_file(M3, m3_path)
-    print(f"M1, M_scavalcamenti, M3 salvate in: {matrices_folder}")
-
-    # Ritorna il grafo e le matrici calcolate/caricate
-    return G, M1, M_scavalcamenti, M3
+    print(f"Calcolo matrici completato per {impronta_nome}.")
+    return G, M1, M_scavalcamenti, M3, node_list_for_matrix
 

@@ -5,7 +5,7 @@ import datetime
 
 # Importa funzioni dai moduli creati
 from graph_processing import load_fingerprint_and_compute
-from subgraph_operations import get_subgraph_within_radius, get_connected_subgraphs_of_minutiae, get_connected_subgraphs_of_minutiae_parallel
+from subgraph_operations import get_subgraph_within_radius, get_connected_subgraphs_of_minutiae, get_connected_subgraphs_of_minutiae_parallel, get_random_minutiae_subgraph_in_radius
 from matching import match_subgraph
 from plotting import plot_and_save_subgraph, plot_mapping, plot_final_graphs,plot_match_with_context
 
@@ -20,8 +20,10 @@ OUTPUT_FOLDER_FINAL_GRAPHS = "/Users/riccardotortorelli/Desktop/Tesi/Output_Fina
 # --- Parametri Configurabili ---
 RADIUS_PERCENTAGE_A = 0.1 # Percentuale della max distanza euclidea per il raggio in A
 RADIUS_PERCENTAGE_B = 0.12 # Percentuale della max distanza euclidea per il raggio in B
-MINUTIAE_SUBGRAPH_SIZE = 6 # Dimensione dei sotto-sottografi di minuzie da cercare
-MIN_MATCH_NODES = 4        # Numero minimo di nodi matchati per considerare un match valido (>=4)
+# MINUTIAE_SUBGRAPH_SIZE = 6 # Dimensione dei sotto-sottografi di minuzie da cercare (SOSTITUITO)
+NUM_MINUTIAE_TO_SELECT = 5 # Numero di minuzie reali da selezionare per i nuovi sottografi
+RADIUS_PIXELS = 4         # Raggio fisso in pixel per la selezione delle minuzie vicine (ESEMPIO, da calibrare)
+MIN_MATCH_NODES = 4        # Numero minimo di nodi matchati per considerare un match valido (>=NUM_MINUTIAE_TO_SELECT se si vuole identità)
 MATCHING_COST_THRESHOLD_REL = 0.7 # Soglia differenza relativa per M1 cost (0.6 = 60% di tolleranza)
 MATCHING_MAX_RIDGE_DIFF = 2     # Soglia differenza assoluta per M_scavalcamenti
 MATCHING_ANGLE_TOLERANCE_DEGREES = 35 # Soglia tolleranza angolare in gradi (es. +/- 35 gradi)
@@ -153,295 +155,272 @@ def main():
             print("Errore: inserisci un numero intero.")
 
     # --- Caricamento e Calcolo Matrici ---
-    print("\n--- Caricamento/Calcolo Dati Impronta A ---")
-    # La funzione ora ritorna G, M1, M_scavalcamenti, M3
-    G_A, M1_A, M_scavalcamenti_A, M3_A = load_fingerprint_and_compute(folder_A, OUTPUT_FOLDER_MATRICES)
-    if G_A is None or M1_A is None or M_scavalcamenti_A is None or M3_A is None:
+    print("\\n--- Caricamento/Calcolo Dati Impronta A ---")
+    # La funzione ora ritorna G, M1, M_scavalcamenti, M3, node_list_for_matrix
+    G_A, M1_A, M_scavalcamenti_A, M3_A, node_list_A = load_fingerprint_and_compute(folder_A, OUTPUT_FOLDER_MATRICES)
+    if G_A is None or M1_A is None or M_scavalcamenti_A is None or M3_A is None or node_list_A is None:
         print(f"Errore critico nel caricamento/calcolo per l'impronta A: {improntaA_nome}. Interruzione.")
         return
     print(f"Caricata Impronta A: {improntaA_nome}, Nodi={G_A.number_of_nodes()}, Archi={G_A.number_of_edges()}")
 
 
-    print("\n--- Caricamento/Calcolo Dati Impronta B ---")
-    G_B, M1_B, M_scavalcamenti_B, M3_B = load_fingerprint_and_compute(folder_B, OUTPUT_FOLDER_MATRICES)
-    if G_B is None or M1_B is None or M_scavalcamenti_B is None or M3_B is None:
+    print("\\n--- Caricamento/Calcolo Dati Impronta B ---")
+    G_B, M1_B, M_scavalcamenti_B, M3_B, node_list_B = load_fingerprint_and_compute(folder_B, OUTPUT_FOLDER_MATRICES)
+    if G_B is None or M1_B is None or M_scavalcamenti_B is None or M3_B is None or node_list_B is None:
         print(f"Errore critico nel caricamento/calcolo per l'impronta B: {improntaB_nome}. Interruzione.")
         return
     print(f"Caricata Impronta B: {improntaB_nome}, Nodi={G_B.number_of_nodes()}, Archi={G_B.number_of_edges()}")
 
 
-    # --- Selezione Minuzia di Partenza in A ---
-    print("\n--- Selezione Minuzia di Partenza ---")
-    minutia_nodesA = sorted([n for n, data in G_A.nodes(data=True) if data.get('type') in ('ending','bifurcation')])
-    if not minutia_nodesA:
+    # --- Selezione Minuzia di Partenza in A (non più necessaria per il nuovo metodo) ---
+    # La logica di selezione della minuzia di partenza e l'estrazione di S_A e S_B basata su RADIUS_PERCENTAGE
+    # viene sostituita dalla nuova logica di iterazione e get_random_minutiae_subgraph_in_radius.
+    # Manteniamo per ora la selezione di una minuziaA_id e minuziaB_id per il plot finale,
+    # ma non guideranno più l'estrazione dei sottografi per il matching.
+
+    # --- Selezione Minuzia di Riferimento in A (per plot finale) ---
+    print("\\n--- Selezione Minuzia di Riferimento (per plot finale) ---")
+    minutia_nodesA_all = sorted([n for n, data in G_A.nodes(data=True) if data.get('type') in ('ending','bifurcation')])
+    if not minutia_nodesA_all:
         print(f"Errore: Nessuna minuzia ('ending' o 'bifurcation') trovata in {improntaA_nome}.")
         return
 
-    print(f"\nMinuzie disponibili in {improntaA_nome}:")
-    for idx, node_id in enumerate(minutia_nodesA):
-        try:
-             node_data = G_A.nodes[node_id]
-             node_type = node_data.get('type', 'N/D')
-             node_pos = node_data.get('pos', ('N/D', 'N/D'))
-             print(f"{idx + 1}. Nodo {node_id} - Tipo: {node_type}, Pos: {node_pos}")
-        except KeyError:
-             print(f"{idx + 1}. Nodo {node_id} - Errore: dati nodo non trovati.")
-
-    while True:
-        try:
-            minutiaA_idx_sel = int(input(f"\nSeleziona il numero della minuzia per '{improntaA_nome}' (1-{len(minutia_nodesA)}): ")) - 1
-            if 0 <= minutiaA_idx_sel < len(minutia_nodesA):
-                minuziaA_id = minutia_nodesA[minutiaA_idx_sel]
-                if minuziaA_id in G_A:
-                     print(f"Hai selezionato la minuzia {minuziaA_id} ({G_A.nodes[minuziaA_id].get('type', 'N/D')}) in A.")
-                     break
-                else:
-                     print(f"Errore: Nodo {minuziaA_id} non trovato nel grafo A. Riprova.")
-            else:
-                print(f"Selezione non valida.")
-        except ValueError:
-            print("Errore: inserisci un numero intero.")
-        except KeyError:
-             print(f"Errore: Dati mancanti per la minuzia selezionata. Riprova.")
-
-
-    #! --- Estrazione Sottografo A (basato su raggio M3) ---
-    print("\n--- Estrazione Sottografi Locali ---")
-    max_dist_A = find_max_finite_distance(M3_A)
-    radiusA = RADIUS_PERCENTAGE_A * max_dist_A
-    print(f"Calcolo raggio per S_A: {RADIUS_PERCENTAGE_A:.0%} di {max_dist_A:.2f} = {radiusA:.2f}")
-    S_A = get_subgraph_within_radius(G_A, M3_A, minuziaA_id, radiusA)
-    if not S_A:
-         print(f"Errore o sottografo A vuoto per nodo {minuziaA_id} e raggio {radiusA:.2f}. Interruzione.")
-         return
-    print(f"Sottografo S_A (intorno a {minuziaA_id}): Nodi={S_A.number_of_nodes()}, Archi={S_A.number_of_edges()}")
-
-    plot_and_save_subgraph(
-        S_A, G_A, minuziaA_id, OUTPUT_FOLDER_GRAPHS,
-        f"macro_subgraph_A_{improntaA_nome}_nodo{minuziaA_id}.png"
-    )
-
-    # --- Selezione (Automatica) Minuzia di Partenza in B ---
-    minutia_nodesB = sorted([n for n, data in G_B.nodes(data=True) if data.get('type') in ('ending','bifurcation')])
-    if not minutia_nodesB:
+    # Scegliamo una minuzia di riferimento in A (es. la prima) per il plot finale.
+    # Questo non influenzerà il matching che itera su tutte le minuzie.
+    minuziaA_ref_id = minutia_nodesA_all[0]
+    print(f"Minuzia di riferimento in A (per plot): {minuziaA_ref_id}")
+    
+    # Trova la più vicina in B per il plot finale
+    minutia_nodesB_all = sorted([n for n, data in G_B.nodes(data=True) if data.get('type') in ('ending','bifurcation')])
+    if not minutia_nodesB_all:
         print(f"Errore: Nessuna minuzia trovata in {improntaB_nome}.")
         return
 
-    try:
-        if minuziaA_id not in G_A:
-             print(f"Errore: Nodo A selezionato {minuziaA_id} non esiste più nel grafo.")
-             return
-        pos_minuziaA = G_A.nodes[minuziaA_id]['pos']
-    except KeyError:
-         print(f"Errore: Posizione mancante per la minuzia {minuziaA_id} in A.")
-         return
-
-    closest_minutiaB_id = None
-    min_euclidean_dist = float('inf')
-
-    for nodeB_id in minutia_nodesB:
+    pos_minuziaA_ref = G_A.nodes[minuziaA_ref_id]['pos']
+    closest_minutiaB_ref_id = None
+    min_euclidean_dist_ref = float('inf')
+    for nodeB_id_ref in minutia_nodesB_all:
         try:
-             if nodeB_id not in G_B: continue
-             pos_nodeB = G_B.nodes[nodeB_id]['pos']
-             distance = math.dist(pos_minuziaA, pos_nodeB)
-             if distance < min_euclidean_dist:
-                 min_euclidean_dist = distance
-                 closest_minutiaB_id = nodeB_id
+            if nodeB_id_ref not in G_B: continue
+            pos_nodeB_ref = G_B.nodes[nodeB_id_ref]['pos']
+            distance = math.dist(pos_minuziaA_ref, pos_nodeB_ref)
+            if distance < min_euclidean_dist_ref:
+                min_euclidean_dist_ref = distance
+                closest_minutiaB_ref_id = nodeB_id_ref
         except KeyError:
-             print(f"Attenzione: Posizione mancante per minuzia {nodeB_id} in B. Ignorata.")
-             continue
-        except Exception as e:
-             print(f"Errore nel calcolare distanza per nodo B {nodeB_id}: {e}")
-             continue
+            continue 
+    minuziaB_ref_id = closest_minutiaB_ref_id if closest_minutiaB_ref_id else minutia_nodesB_all[0]
+    print(f"Minuzia di riferimento in B (per plot): {minuziaB_ref_id}")
 
-    if closest_minutiaB_id is None:
-        print(f"Errore: Impossibile trovare una minuzia valida in B vicina a {minuziaA_id}.")
-        return
 
-    minuziaB_id = closest_minutiaB_id
-    if minuziaB_id not in G_B:
-         print(f"Errore: Nodo B selezionato {minuziaB_id} non esiste più nel grafo.")
-         return
-    print(f"Minuzia più vicina in '{improntaB_nome}' a {minuziaA_id} (pos {pos_minuziaA}):")
-    print(f"-> Nodo {minuziaB_id} ({G_B.nodes[minuziaB_id].get('type', 'N/D')}), Distanza Euclidea: {min_euclidean_dist:.2f}")
+    #! --- NUOVA LOGICA: Ricerca e Matching dei Sottografi Casuali Basati su Raggio ---
+    print(f"\\n--- Ricerca Sottografi Casuali di {NUM_MINUTIAE_TO_SELECT} Minuzie (Raggio {RADIUS_PIXELS}px) ---")
 
-    # --- Estrazione Sottografo B (basato su raggio M3) ---
-    max_dist_B = find_max_finite_distance(M3_B)
-    radiusB = RADIUS_PERCENTAGE_B * max_dist_B
-    print(f"Calcolo raggio per S_B: {RADIUS_PERCENTAGE_B:.0%} di {max_dist_B:.2f} = {radiusB:.2f}")
-    S_B = get_subgraph_within_radius(G_B, M3_B, minuziaB_id, radiusB)
-    if not S_B:
-         print(f"Errore o sottografo B vuoto per nodo {minuziaB_id} e raggio {radiusB:.2f}. Interruzione.")
-         return
-    print(f"Sottografo S_B (intorno a {minuziaB_id}): Nodi={S_B.number_of_nodes()}, Archi={S_B.number_of_edges()}")
-
-    plot_and_save_subgraph(
-        S_B, G_B, minuziaB_id, OUTPUT_FOLDER_GRAPHS,
-        f"macro_subgraph_B_{improntaB_nome}_nodo{minuziaB_id}.png"
-    )
-
-    #! --- Ricerca e Matching dei Sotto-Sottografi di Minuzie ---
-    print(f"\n--- Ricerca Sotto-Sottografi Connessi di {MINUTIAE_SUBGRAPH_SIZE} Minuzie ---")
-
-    sub_subgraphs_A = get_connected_subgraphs_of_minutiae_parallel(S_A, size=MINUTIAE_SUBGRAPH_SIZE)
-    sub_subgraphs_B = get_connected_subgraphs_of_minutiae_parallel(S_B, size=MINUTIAE_SUBGRAPH_SIZE)
-
-   
-
-    print(f"Trovati {len(sub_subgraphs_A)} sotto-sottografi connessi di {MINUTIAE_SUBGRAPH_SIZE} minuzie in S_A.")
-    print(f"Trovati {len(sub_subgraphs_B)} sotto-sottografi connessi di {MINUTIAE_SUBGRAPH_SIZE} minuzie in S_B.")
-
-   
-    if not sub_subgraphs_A or not sub_subgraphs_B:
-        print("Nessun sotto-sottografo di minuzie della dimensione richiesta trovato. Impossibile eseguire il matching.")
-        plot_final_graphs(
-            G_A, G_B, set(), set(),
-            G_A.nodes[minuziaA_id].get('pos') if minuziaA_id in G_A else None, radiusA,
-            G_B.nodes[minuziaB_id].get('pos') if minuziaB_id in G_B else None, radiusB,
-            OUTPUT_FOLDER_FINAL_GRAPHS,
-            f"final_NO_MATCHES_{improntaA_nome}_vs_{improntaB_nome}.png",
-            all_matches=[]
-        )
-        return
-
-    print(f"\n--- Esecuzione Matching (M1 Rel={MATCHING_COST_THRESHOLD_REL}, Scaval Abs={MATCHING_MAX_RIDGE_DIFF}, Ang Tol={MATCHING_ANGLE_TOLERANCE_DEGREES}) ---")
-    match_counter = 0
     all_matches = []
-    matched_nodes_A_global = set()
-    matched_nodes_B_global = set()
+    match_counter = 0
+    processed_central_nodes_A = 0
+
+    # Itera su tutte le minuzie reali in A come possibili nodi centrali
+    real_minutiae_A = [n for n, data in G_A.nodes(data=True) if data.get('type') != 'added']
+    real_minutiae_B = [n for n, data in G_B.nodes(data=True) if data.get('type') != 'added']
+
+    print(f"Inizio generazione e matching sottografi...")
+    print(f"Minuzie reali in A: {len(real_minutiae_A)}, Minuzie reali in B: {len(real_minutiae_B)}")
+
+    # Per evitare di riprocessare coppie di sottografi identiche se la selezione casuale produce gli stessi nodi
+    # (anche se con la componente casuale e i percorsi minimi è meno probabile avere duplicati esatti di S_A/S_B)
+    # Una strategia più robusta contro i duplicati di *match* è controllare il mapping, come già fatto dopo.
     
-    total_pairs_to_check = len(sub_subgraphs_A) * len(sub_subgraphs_B)
-    checked_count = 0
+    # Definisci la funzione peso per i cammini minimi (se vuoi usare i costi degli archi)
+    # Ad esempio, se gli archi hanno un attributo 'cost':
+    # shortest_path_weight_func = lambda u, v, d: d.get('cost', 1.0)
+    # Se vuoi cammini minimi basati sul numero di archi (non pesati):
+    shortest_path_weight_func = None
 
-        
-    print(f"\n--- Risultato Matching ---")
-    print(f"Totale combinazioni di sotto-sottografi testate: {checked_count}")
-    print(f"Numero di match validi trovati (>= {MIN_MATCH_NODES} nodi): {match_counter}")
-    print(f"Nodi totali coinvolti in match validi in A: {len(matched_nodes_A_global)}")
-    print(f"Nodi totali coinvolti in match validi in B: {len(matched_nodes_B_global)}")
-    # In main_script.py, sostituisci il ciclo di matching esistente con questo:
 
-    print(f"\n--- Esecuzione Matching (M1 Rel={MATCHING_COST_THRESHOLD_REL}, Scaval Abs={MATCHING_MAX_RIDGE_DIFF}, Ang Tol={MATCHING_ANGLE_TOLERANCE_DEGREES}) ---")
-    match_counter = 0
-    all_matches = []
-    matched_nodes_A_global = set()
-    matched_nodes_B_global = set()
+    for central_node_A in real_minutiae_A:
+        processed_central_nodes_A += 1
+        if processed_central_nodes_A % 10 == 0: # Log ogni 10 nodi centrali di A
+            print(f"  Processando nodo centrale A #{processed_central_nodes_A}/{len(real_minutiae_A)}: {central_node_A}")
 
-    total_pairs_to_check = len(sub_subgraphs_A) * len(sub_subgraphs_B)
-    checked_count = 0
+        S_A = get_random_minutiae_subgraph_in_radius(
+            G_A, M3_A, node_list_A, central_node_A, 
+            RADIUS_PIXELS, NUM_MINUTIAE_TO_SELECT,
+            shortest_path_weight_func=shortest_path_weight_func
+        )
+        if S_A is None or len([n for n in S_A.nodes if S_A.nodes[n].get('type') != 'added']) < NUM_MINUTIAE_TO_SELECT:
+            continue # Sottografo non valido o troppo piccolo
 
-    # Teniamo traccia dei mapping già trovati per evitare duplicati
-    found_mappings = set()
+        # Plot del sottografo S_A generato (opzionale, può generare molti file)
+        # plot_and_save_subgraph(
+        #     S_A, G_A, central_node_A, OUTPUT_FOLDER_SUBGRAPHS, # Usa OUTPUT_FOLDER_SUBGRAPHS
+        #     f"S_A_cen{central_node_A}_r{RADIUS_PIXELS}_n{NUM_MINUTIAE_TO_SELECT}.png"
+        # )
 
-    for idxA, (nodesA, subG_A) in enumerate(sub_subgraphs_A):
-        for idxB, (nodesB, subG_B) in enumerate(sub_subgraphs_B):
-            # Esegui il matching tra i due sottografi
+        for central_node_B in real_minutiae_B:
+            S_B = get_random_minutiae_subgraph_in_radius(
+                G_B, M3_B, node_list_B, central_node_B,
+                RADIUS_PIXELS, NUM_MINUTIAE_TO_SELECT, # Usa lo stesso raggio per B, o definisci RADIUS_PIXELS_B
+                shortest_path_weight_func=shortest_path_weight_func
+            )
+            if S_B is None or len([n for n in S_B.nodes if S_B.nodes[n].get('type') != 'added']) < NUM_MINUTIAE_TO_SELECT:
+                continue
+            
+            # Plot del sottografo S_B generato (opzionale)
+            # plot_and_save_subgraph(
+            #     S_B, G_B, central_node_B, OUTPUT_FOLDER_SUBGRAPHS,
+            #     f"S_B_cen{central_node_B}_r{RADIUS_PIXELS}_n{NUM_MINUTIAE_TO_SELECT}.png"
+            # )
+
+            # Esegui il matching tra S_A e S_B
+            # La funzione match_subgraph si aspetta che i nodi reali siano identificabili
+            # e che le matrici M1 e M_scavalcamenti siano relative ai grafi originali G_A, G_B.
             success, mapping, score, pair_details = match_subgraph(
-                subG_A, subG_B,
-                M1_A, M1_B,
-                M_scavalcamenti_A, M_scavalcamenti_B,
+                S_A, S_B, # I sottografi S_A e S_B contengono nodi da G_A e G_B
+                M1_A, M1_B, # Matrici globali
+                M_scavalcamenti_A, M_scavalcamenti_B, # Matrici globali
                 cost_threshold_rel=MATCHING_COST_THRESHOLD_REL,
                 max_ridge_diff=MATCHING_MAX_RIDGE_DIFF,
                 angle_tolerance_degrees=MATCHING_ANGLE_TOLERANCE_DEGREES
             )
-
-            checked_count += 1
-            if checked_count > 0 and checked_count % 5000 == 0: # Aggiornamento meno frequente
-                print(f"  Controllata coppia {checked_count}/{total_pairs_to_check}...")
             
-            if not success:
-                continue
+            if success and len(mapping) >= MIN_MATCH_NODES:
+                # Converti il mapping in una rappresentazione immutabile per il controllo dei duplicati
+                # Questo controllo sui mapping duplicati è importante
+                # mapping_tuple = tuple(sorted((a, b) for a, b in mapping.items()))
+                # if mapping_tuple in found_mappings: # found_mappings deve essere definito prima del loop
+                #     continue
+                # found_mappings.add(mapping_tuple) # Aggiungi se non è un duplicato
+
+                match_counter += 1
+                matched_nodesA_map = list(mapping.keys())
+                matched_nodesB_map = [mapping[n] for n in matched_nodesA_map]
                 
-            # Converti il mapping in una rappresentazione immutabile per il controllo dei duplicati
-            mapping_tuple = tuple(sorted((a, b) for a, b in mapping.items()))
-            
-            # Salta se questo mapping è già stato trovato
-            if mapping_tuple in found_mappings:
-                continue
-                
-            # Aggiungi il mapping alla lista dei trovati
-            found_mappings.add(mapping_tuple)
+                current_match_result = {
+                    'id': match_counter,
+                    'mapping': mapping,
+                    'nodes_A': matched_nodesA_map,
+                    'nodes_B': matched_nodesB_map,
+                    'score': score,
+                    'pair_details': pair_details,
+                    'subG_A': S_A.copy(), # Salva una copia per evitare modifiche impreviste
+                    'subG_B': S_B.copy(),
+                    'central_node_A': central_node_A, # Nodo usato per generare S_A
+                    'central_node_B': central_node_B  # Nodo usato per generare S_B
+                }
+                all_matches.append(current_match_result)
 
-            match_counter += 1
-            matched_nodesA = list(mapping.keys())
-            matched_nodesB = [mapping[n] for n in matched_nodesA]
-            
-            # Aggiorna i set globali di nodi matchati
-            matched_nodes_A_global.update(matched_nodesA)
-            matched_nodes_B_global.update(matched_nodesB)
+                # Stampa informazioni sul match (meno verboso durante il ciclo)
+                if match_counter % 20 == 0: # Log ogni 20 match trovati
+                     print(f"    Trovato Match #{match_counter}! Score: {score:.4f}. Centrali A:{central_node_A}, B:{central_node_B}")
 
-            # Crea un risultato con lo score
-            match_result = {
-                'id': match_counter,
-                'mapping': mapping,
-                'nodes_A': matched_nodesA,
-                'nodes_B': matched_nodesB,
-                'score': score,
-                'pair_details': pair_details,
-                'subG_A': subG_A,
-                'subG_B': subG_B,
-                'start_nodeA': nodesA[0],
-                'start_nodeB': nodesB[0]
-            }
-            
-            all_matches.append(match_result)
-
-            # Stampa informazioni sul match
-            print(f"\nMatch #{match_counter} Trovato! Score: {score:.4f}")
-            print(f"  Sottografo A (nodi {matched_nodesA}):")
-            print(f"  Sottografo B (nodi {matched_nodesB}):")
-            print(f"  Mapping: {mapping}")
 
     # Ordina i match per score (dal migliore al peggiore)
     all_matches.sort(key=lambda x: x['score'], reverse=True)
+    
+    # Filtra ulteriormente i duplicati basati sul mapping esatto, mantenendo quello con score più alto
+    # Questo è utile se la logica precedente non ha catturato tutti i duplicati o se si preferisce
+    # un approccio post-processato.
+    unique_matches_by_mapping = {}
+    for m in all_matches:
+        mapping_tuple = tuple(sorted(m['mapping'].items()))
+        if mapping_tuple not in unique_matches_by_mapping or m['score'] > unique_matches_by_mapping[mapping_tuple]['score']:
+            unique_matches_by_mapping[mapping_tuple] = m
+    
+    all_matches = list(unique_matches_by_mapping.values())
+    all_matches.sort(key=lambda x: x['score'], reverse=True) # Riordina dopo la deduplicazione
+
+    # Aggiorna gli ID dei match dopo la deduplicazione
+    for i, match_item in enumerate(all_matches):
+        match_item['id'] = i + 1
+
+
+    print(f"\\n--- Risultato Matching (Nuova Metodologia) ---")
+    print(f"Totale nodi centrali A processati: {processed_central_nodes_A}")
+    print(f"Numero di match unici trovati (>= {MIN_MATCH_NODES} nodi): {len(all_matches)}")
+
+    # Aggiorna i set globali di nodi matchati dai match filtrati e ordinati
+    matched_nodes_A_global = set()
+    matched_nodes_B_global = set()
+    for match in all_matches:
+        matched_nodes_A_global.update(match['nodes_A'])
+        matched_nodes_B_global.update(match['nodes_B'])
+
+    print(f"Nodi totali coinvolti in match validi in A: {len(matched_nodes_A_global)}")
+    print(f"Nodi totali coinvolti in match validi in B: {len(matched_nodes_B_global)}")
+
 
     # Stampare i risultati ordinati
-    print(f"\n--- Graduatoria dei {len(all_matches)} Match Trovati ---")
+    print(f"\\n--- Graduatoria dei {len(all_matches)} Match Trovati (Nuova Metodologia) ---")
     for i, match in enumerate(all_matches):
-        print(f"{i+1}. Match #{match['id']} - Score: {match['score']:.4f} - Nodi A: {match['nodes_A']}, Nodi B: {match['nodes_B']}")
+        print(f"{i+1}. Match #{match['id']} - Score: {match['score']:.4f} - Centrali A:{match['central_node_A']}, B:{match['central_node_B']}")
+        # print(f"   Nodi A: {match['nodes_A']}, Nodi B: {match['nodes_B']}")
 
-    # Poi procedi con il plotting come prima, ma usa all_matches ordinato
-    for match in all_matches:
-        # Chiama la funzione di plot
+
+    # Plotting dei migliori match
+    # Potresti voler plottare solo i top N match per evitare troppi file
+    num_matches_to_plot = min(len(all_matches), 10) # Esempio: plotta i top 10
+    print(f"\\n--- Plotting dei migliori {num_matches_to_plot} match ---")
+
+    for i, match in enumerate(all_matches[:num_matches_to_plot]):
+        plot_filename_base = (
+            f"match_{match['id']:03d}_score_{match['score']:.4f}_"
+            f"A_cen{match['central_node_A']}_B_cen{match['central_node_B']}"
+        )
+        
+        # Plot dei due sottografi S_A e S_B con il mapping
         plot_mapping(
             match['subG_A'], match['subG_B'],
-            G_A, G_B,
+            G_A, G_B, # Grafi originali per contesto posizioni
             match['mapping'],
             OUTPUT_FOLDER_SUBGRAPHS,
-            f"match_{match['id']}_score_{match['score']:.4f}_A({len(match['nodes_A'])}of{MINUTIAE_SUBGRAPH_SIZE})_"
-            f"{match['start_nodeA']}_vs_B({len(match['nodes_B'])}of{MINUTIAE_SUBGRAPH_SIZE})_"
-            f"{match['start_nodeB']}.png"
+            f"{plot_filename_base}.png",
+            score=match['score']
         )
-        plot_match_with_context(
-            S_A, S_B,                      # macro-subgrafi
-            match["subG_A"], match["subG_B"],
-            G_A, G_B,
-            match["mapping"],
-            OUTPUT_FOLDER_SUBGRAPHS,
-            f"match_{match['id']}_WITH_CONTEXT.png",
-            score=match["score"]
-        )
+        
+        # Plot con contesto (se la funzione è ancora rilevante e funzionante con S_A, S_B)
+        # La funzione plot_match_with_context potrebbe aver bisogno di aggiustamenti
+        # se S_A e S_B ora sono generati diversamente (non sono più "macro" subgrafi).
+        # Per ora, la commentiamo se non siamo sicuri della sua compatibilità diretta.
+        # plot_match_with_context(
+        #     G_A, G_B, # Passiamo i grafi completi come "macro"
+        #     match["subG_A"], match["subG_B"], # E i sottografi specifici del match
+        #     G_A, G_B, # Di nuovo G_A, G_B per il contesto interno alla funzione
+        #     match["mapping"],
+        #     OUTPUT_FOLDER_SUBGRAPHS,
+        #     f"{plot_filename_base}_WITH_CONTEXT.png",
+        #     score=match["score"]
+        # )
+        print(f"  Plot salvato per Match #{match['id']}: {plot_filename_base}.png")
 
 
     # --- Stampa Finale dei Grafi Completi con Evidenziazione ---
-    print("\n--- Generazione Plot Finale ---")
-    centerA_coords = G_A.nodes[minuziaA_id].get('pos') if minuziaA_id in G_A else None
-    centerB_coords = G_B.nodes[minuziaB_id].get('pos') if minuziaB_id in G_B else None
+    print("\\n--- Generazione Plot Finale (Nuova Metodologia) ---")
+    # Usa le minuzie di riferimento per centrare il plot finale, se disponibili
+    centerA_coords_plot = G_A.nodes[minuziaA_ref_id].get('pos') if minuziaA_ref_id in G_A else None
+    centerB_coords_plot = G_B.nodes[minuziaB_ref_id].get('pos') if minuziaB_ref_id in G_B else None
+    
+    # Per i raggi del plot finale, potremmo usare un valore fisso o calcolarlo
+    # Se RADIUS_PERCENTAGE_A/B non sono più usati per l'estrazione, potremmo ricalcolarli qui
+    # o usare un valore indicativo. Per ora, usiamo i valori originali se disponibili.
+    final_plot_radiusA = RADIUS_PERCENTAGE_A * find_max_finite_distance(M3_A) if M3_A else 100
+    final_plot_radiusB = RADIUS_PERCENTAGE_B * find_max_finite_distance(M3_B) if M3_B else 100
+
 
     plot_final_graphs(
         G_A, G_B,
-        matched_nodes_A_global,
+        matched_nodes_A_global, # Nodi globalmente matchati
         matched_nodes_B_global,
-        centerA_coords=centerA_coords,
-        radiusA=radiusA,
-        centerB_coords=centerB_coords,
-        radiusB=radiusB,
+        centerA_coords=centerA_coords_plot,
+        radiusA=final_plot_radiusA, # Raggio per il cerchio di visualizzazione
+        centerB_coords=centerB_coords_plot,
+        radiusB=final_plot_radiusB, # Raggio per il cerchio di visualizzazione
         output_folder=OUTPUT_FOLDER_FINAL_GRAPHS,
-        filename=f"final_matches_{improntaA_nome}_vs_{improntaB_nome}.png",
-        all_matches=all_matches
+        filename=f"final_matches_NEW_{improntaA_nome}_vs_{improntaB_nome}.png",
+        all_matches=all_matches # Passa tutti i match per eventuale visualizzazione dettagliata nel plot
     )
 
-    print("\n--- Elaborazione Completata ---")
+    print("\\n--- Elaborazione Completata (Nuova Metodologia) ---")
 
 # --- Esecuzione dello script ---
 if __name__ == "__main__":
