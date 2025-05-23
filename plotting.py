@@ -8,10 +8,7 @@ from matplotlib.patches import Circle
 NODE_TYPE_COLOR_MAP = {
     'ending': 'red',
     'bifurcation': 'blue',
-    
-    
     'added': 'lightgreen',
-    'unknown': 'gray' 
 }
 
 
@@ -108,15 +105,6 @@ def plot_and_save_subgraph(S, G_original, source_node, output_folder, filename):
     plt.close()
 
 
-
-
-
-
-
-
-
-
-
 def plot_mapping(S_A, S_B, G_A, G_B, mapping, output_folder, filename, score=None):
     """
     Plotta i due sottografi uno accanto all'altro con i nodi mappati colorati allo stesso modo.
@@ -137,14 +125,15 @@ def plot_mapping(S_A, S_B, G_A, G_B, mapping, output_folder, filename, score=Non
         plt.close()
         return
 
+    # Filtra i nodi 'added'
+    real_nodes_A = [n for n in S_A.nodes() if S_A.nodes[n].get('type') != 'added']
+    real_nodes_B = [n for n in S_B.nodes() if S_B.nodes[n].get('type') != 'added']
     
     edges_A_no_added = [(u, v) for u, v, data in S_A.edges(data=True) if data.get('type') != 'added']
-    node_list_A = list(S_A.nodes())
-
     
     node_colors_A = []
     node_sizes_A = []
-    for n in node_list_A:
+    for n in real_nodes_A:
         if n in mapping.keys():
             node_type = S_A.nodes[n].get('type', 'unknown')
             
@@ -166,21 +155,19 @@ def plot_mapping(S_A, S_B, G_A, G_B, mapping, output_folder, filename, score=Non
             edge_colors_A.append('darkgrey')
             edge_widths_A.append(0.3)
 
-    nx.draw_networkx_nodes(S_A, pos_A, nodelist=node_list_A, node_size=node_sizes_A,
+    nx.draw_networkx_nodes(S_A, pos_A, nodelist=real_nodes_A, node_size=node_sizes_A,
                           node_color=node_colors_A, linewidths=0.5, edgecolors='black', ax=ax1)
     nx.draw_networkx_edges(S_A, pos_A, edgelist=edges_A_no_added,
                           edge_color=edge_colors_A, width=edge_widths_A, ax=ax1)
     
-    nx.draw_networkx_labels(S_A, pos_A, labels={n: str(n) for n in node_list_A}, font_size=0.5, ax=ax1)
+    nx.draw_networkx_labels(S_A, pos_A, labels={n: str(n) for n in real_nodes_A}, font_size=0.5, ax=ax1)
 
     
     edges_B_no_added = [(u, v) for u, v, data in S_B.edges(data=True) if data.get('type') != 'added']
-    node_list_B = list(S_B.nodes())
-
     
     node_colors_B = []
     node_sizes_B = []
-    for n in node_list_B:
+    for n in real_nodes_B:
         if n in mapping.values():
             
             node_type = S_B.nodes[n].get('type', 'unknown')
@@ -202,12 +189,12 @@ def plot_mapping(S_A, S_B, G_A, G_B, mapping, output_folder, filename, score=Non
             edge_colors_B.append('darkgrey')
             edge_widths_B.append(0.3)
 
-    nx.draw_networkx_nodes(S_B, pos_B, nodelist=node_list_B, node_size=node_sizes_B,
+    nx.draw_networkx_nodes(S_B, pos_B, nodelist=real_nodes_B, node_size=node_sizes_B,
                           node_color=node_colors_B, linewidths=0.5, edgecolors='black', ax=ax2)
     nx.draw_networkx_edges(S_B, pos_B, edgelist=edges_B_no_added,
                           edge_color=edge_colors_B, width=edge_widths_B, ax=ax2)
     
-    nx.draw_networkx_labels(S_B, pos_B, labels={n: str(n) for n in node_list_B}, font_size=0.5, ax=ax2)
+    nx.draw_networkx_labels(S_B, pos_B, labels={n: str(n) for n in real_nodes_B}, font_size=0.5, ax=ax2)
 
     ax1.set_title(f"Sottografo A (Match: {len(mapping)} nodi)")
     ax1.axis("off")  
@@ -315,6 +302,7 @@ def plot_final_graphs(
         
         
         
+        
             node_type = G_B.nodes[n].get('type', 'unknown')
             node_colors_B.append(FINAL_PLOT_NODE_COLOR_MAP.get(node_type, 'grey'))
             node_sizes_B.append(1)
@@ -351,4 +339,85 @@ def plot_final_graphs(
         print(f"Stampa finale dei grafi salvata in: {out_path}")
     except Exception as e:
         print(f"Errore durante il salvataggio di {out_path}: {e}")
+    plt.close()
+
+def plot_match_with_context(macro_A, macro_B, sub_A, sub_B,
+                            G_A, G_B, mapping,
+                            out_dir, filename, score=None):
+    """
+    Plotta i macro-subgrafi (S_A e S_B) con evidenziato il sotto-sottografo matchato.
+    I nodi 'added' non vengono visualizzati.
+    """
+    import matplotlib.pyplot as plt
+    import os
+
+    posA = nx.get_node_attributes(G_A, "pos")
+    posB = nx.get_node_attributes(G_B, "pos")
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 9))
+
+    # --- Macro A ---
+    # Filtra i nodi 'added' dal macro-grafo A
+    real_nodes_macro_A = [n for n in macro_A.nodes() if macro_A.nodes[n].get("type") != "added"]
+    nx.draw_networkx_nodes(macro_A, posA,
+                           nodelist=real_nodes_macro_A,
+                           node_size=3, node_color="lightgrey", ax=ax1)
+    nx.draw_networkx_edges(macro_A, posA,
+                           edgelist=[e for e in macro_A.edges()
+                                     if macro_A.edges[e].get("type") != "added"],
+                           width=0.2, edge_color="lightgrey", ax=ax1)
+    
+    # Nodi reali (non 'added') del sottografo
+    real_nodes_A = [n for n in sub_A.nodes() if sub_A.nodes[n].get("type") != "added"]
+    node_colors_A = [NODE_TYPE_COLOR_MAP.get(sub_A.nodes[n].get('type', 'unknown')) for n in real_nodes_A]
+
+    nx.draw_networkx_nodes(sub_A, posA,
+                           nodelist=real_nodes_A,
+                           node_size=5, node_color=node_colors_A, ax=ax1,
+                           edgecolors="black", linewidths=0.5)
+
+    # Archi veri
+    sub_edges_A = [e for e in sub_A.edges() if sub_A.edges[e].get("type") != "added"]
+    nx.draw_networkx_edges(sub_A, posA,
+                           edgelist=sub_edges_A,
+                           width=0.5, edge_color="blue", ax=ax1)
+
+    ax1.set_title("Macro Subgraph A")
+    ax1.axis("off")
+    ax1.set_aspect("equal")
+
+    # --- Macro B ---
+    # Filtra i nodi 'added' dal macro-grafo B
+    real_nodes_macro_B = [n for n in macro_B.nodes() if macro_B.nodes[n].get("type") != "added"]
+    nx.draw_networkx_nodes(macro_B, posB,
+                           nodelist=real_nodes_macro_B,
+                           node_size=3, node_color="lightgrey", ax=ax2)
+    nx.draw_networkx_edges(macro_B, posB,
+                           edgelist=[e for e in macro_B.edges()
+                                     if macro_B.edges[e].get("type") != "added"],
+                           width=0.2, edge_color="lightgrey", ax=ax2)
+
+    real_nodes_B = [n for n in sub_B.nodes() if sub_B.nodes[n].get("type") != "added"]
+    node_colors_B = [NODE_TYPE_COLOR_MAP.get(sub_B.nodes[n].get('type', 'unknown')) for n in real_nodes_B]
+
+    nx.draw_networkx_nodes(sub_B, posB,
+                           nodelist=real_nodes_B,
+                           node_size=5, node_color=node_colors_B, ax=ax2,
+                           edgecolors="black", linewidths=0.5)
+
+    sub_edges_B = [e for e in sub_B.edges() if sub_B.edges[e].get("type") != "added"]
+    nx.draw_networkx_edges(sub_B, posB,
+                           edgelist=sub_edges_B,
+                           width=0.5, edge_color="blue", ax=ax2)
+
+    ax2.set_title("Macro Subgraph B")
+    ax2.axis("off")
+    ax2.set_aspect("equal")
+
+    if score is not None:
+        plt.suptitle(f"Match score: {score:.4f}", fontsize=14)
+
+    os.makedirs(out_dir, exist_ok=True)
+    out_path = os.path.join(out_dir, filename)
+    plt.savefig(out_path, dpi=600, bbox_inches="tight")
     plt.close()

@@ -1,4 +1,3 @@
-# main_script.py
 import os
 import math
 import networkx as nx
@@ -8,7 +7,7 @@ import datetime
 from graph_processing import load_fingerprint_and_compute
 from subgraph_operations import get_subgraph_within_radius, get_connected_subgraphs_of_minutiae, get_connected_subgraphs_of_minutiae_parallel
 from matching import match_subgraph
-from plotting import plot_and_save_subgraph, plot_mapping, plot_final_graphs
+from plotting import plot_and_save_subgraph, plot_mapping, plot_final_graphs,plot_match_with_context
 
 # --- Definisci qui le costanti per i percorsi ---
 # NOTA: Aggiorna questi percorsi con quelli corretti sul tuo sistema
@@ -25,7 +24,7 @@ MINUTIAE_SUBGRAPH_SIZE = 6 # Dimensione dei sotto-sottografi di minuzie da cerca
 MIN_MATCH_NODES = 4        # Numero minimo di nodi matchati per considerare un match valido (>=4)
 MATCHING_COST_THRESHOLD_REL = 0.7 # Soglia differenza relativa per M1 cost (0.6 = 60% di tolleranza)
 MATCHING_MAX_RIDGE_DIFF = 2     # Soglia differenza assoluta per M_scavalcamenti
-MATCHING_ANGLE_TOLERANCE_DEGREES = 30 # Soglia tolleranza angolare in gradi (es. +/- 35 gradi)
+MATCHING_ANGLE_TOLERANCE_DEGREES = 35 # Soglia tolleranza angolare in gradi (es. +/- 35 gradi)
 
 def find_max_finite_distance(matrix):
     """Trova il massimo valore finito in una matrice di distanze (usato per M3)."""
@@ -413,6 +412,16 @@ def main():
             f"{match['start_nodeA']}_vs_B({len(match['nodes_B'])}of{MINUTIAE_SUBGRAPH_SIZE})_"
             f"{match['start_nodeB']}.png"
         )
+        plot_match_with_context(
+            S_A, S_B,                      # macro-subgrafi
+            match["subG_A"], match["subG_B"],
+            G_A, G_B,
+            match["mapping"],
+            OUTPUT_FOLDER_SUBGRAPHS,
+            f"match_{match['id']}_WITH_CONTEXT.png",
+            score=match["score"]
+        )
+
 
     # --- Stampa Finale dei Grafi Completi con Evidenziazione ---
     print("\n--- Generazione Plot Finale ---")
