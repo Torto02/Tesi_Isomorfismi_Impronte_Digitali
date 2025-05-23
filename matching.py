@@ -13,8 +13,6 @@ def get_real_nodes(G):
 # ------------------------------------------------------------------
 # CACHING -----------------------------------------------------------
 # ------------------------------------------------------------------
-from collections import deque
-
 def _ensure_neighbor_cache(G):
     """
     Costruisce (una sola volta) e salva in G.graph['_real_neighbor_cache']
@@ -64,7 +62,7 @@ def _orientation(p, q, r):
     return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
 
 def _orientation_is_consistent(G_A, G_B, mapping):
-    """Controlla che il segno del prodotto vettoriale tra triplette di nodi mappati sia consistente (evita riflessioni)."""
+    """Controlla che il segno del prodotto vettoriale tra triplette di nodi mappati sia consistente."""
     for nodeA, nodeB in mapping.items():
         neighborsA = get_real_neighbors_via_added(G_A, nodeA)
         for i in range(len(neighborsA)):
@@ -93,10 +91,7 @@ def _orientation_is_consistent(G_A, G_B, mapping):
 # FILTRI E HEURISTICHE ---------------------------------------------
 # ------------------------------------------------------------------
 def _build_candidate_map(G_A, G_B, nodes_A, nodes_B):
-    """
-    Per ogni nodo di A restituisce la lista dei nodi B compatibili
-    (stesso tipo + stesso degree reale), già ordinata per ID
-    """
+    """Per ogni nodo di A restituisce la lista dei nodi B compatibili."""
     # Pre-compute grado reale (più economico dei degree() classici)
     degA = {n: len(get_real_neighbors_via_added(G_A, n)) for n in nodes_A}
     degB = {n: len(get_real_neighbors_via_added(G_B, n)) for n in nodes_B}
@@ -109,10 +104,7 @@ def _build_candidate_map(G_A, G_B, nodes_A, nodes_B):
     return cand
 
 def _partial_edge_check(G_A, G_B, mapping, nodeA, nodeB, angle_tol):
-    """
-    Appena abbini nodeA→nodeB, controlla se le connessioni già mappate
-    sono coerenti; se falliscono si può fare subito back-track.
-    """
+    """Controlla coerenza delle connessioni già mappate."""
     for nA_neigh in get_real_neighbors_via_added(G_A, nodeA):
         if nA_neigh not in mapping:
             continue
@@ -135,16 +127,15 @@ def is_angle_similar(angleA, angleB, tolerance_degrees=30):
     """Verifica se due angoli sono simili entro una tolleranza"""
     if angleA is None or angleB is None:
         return False
-    diff = abs(angleA - angleB)
-    angular_distance = min(diff, 360.0 - diff)
-    return angular_distance <= tolerance_degrees
-
+    try:
+        diff = abs(angleA - angleB)
+        angular_distance = min(diff, 360.0 - diff)
+        return angular_distance <= tolerance_degrees
+    except (ValueError, TypeError):
+        return False
 
 def find_path_via_added(G, source, target):
-    """
-    Trova un percorso minimo da source a target attraversando solo nodi 'added'
-    tra real nodes. Restituisce la lista di nodi del percorso se esiste.
-    """
+    """Trova percorso minimo via nodi added."""
     # BFS che evita di passare per real nodes diversi da source e target
     visited = {source}
     queue = deque([[source]])
@@ -165,10 +156,7 @@ def find_path_via_added(G, source, target):
 
 
 def angle_along_path(G, source, target):
-    """
-    Calcola l'angolo iniziale lungo il percorso da source a target,
-    considerando il primo segmento (anche via added).
-    """
+    """Calcola angolo iniziale lungo il percorso."""
     path = None
     if G.has_edge(source, target):
         # percorso diretto
@@ -181,15 +169,12 @@ def angle_along_path(G, source, target):
     return None
 
 def is_direct_edge(G, n1, n2):
-    """True se tra n1 e n2 c’è un arco il cui attributo 'type' != 'added'."""
+    """True se tra n1 e n2 c'è un arco non added."""
     return G.has_edge(n1, n2) and G.edges[n1, n2].get("type") != "added"
 
 
 def check_edge_compatibility(G_A, G_B, mapping, angle_tolerance=30):
-    """
-    Verifica se le connessioni tra i nodi mappati sono compatibili.
-    Ora include verifica dell'angolo lungo il percorso diretto o via added.
-    """
+    """Verifica compatibilità delle connessioni tra nodi mappati."""
     for nodeA, nodeB in mapping.items():
         neighborsA = get_real_neighbors_via_added(G_A, nodeA)
         neighborsB = get_real_neighbors_via_added(G_B, nodeB)
@@ -206,71 +191,17 @@ def check_edge_compatibility(G_A, G_B, mapping, angle_tolerance=30):
                     return False
     return True
 
-def is_angle_similar(angleA, angleB, tolerance_degrees=30):
-    """Verifica se due angoli sono simili entro una tolleranza"""
-    if angleA is None or angleB is None:
-        return False
-    try:
-        diff = abs(angleA - angleB)
-        angular_distance = min(diff, 360.0 - diff)
-        return angular_distance <= tolerance_degrees
-    except (ValueError, TypeError):
-        return False
-
-def is_cost_similar(cA, cB, threshold=0.5):
-    """Verifica se due costi sono simili entro una soglia relativa"""
-    if cA == float('inf') and cB == float('inf'):
-        return True
-    if cA == float('inf') or cB == float('inf'):
-        return False
-    if abs(cA) < 1e-6 and abs(cB) < 1e-6:
-        return True
-    denom = max(abs(cA), abs(cB))
-    if denom < 1e-9:
-        return True
-    try:
-        diff_rel = abs(float(cA) - float(cB)) / denom
-        return diff_rel <= threshold
-    except (ValueError, TypeError):
-        return False
-
-def is_ridge_jump_similar(jumpA, jumpB, max_diff=1):
-    """Verifica se due scavalcamenti sono simili entro una differenza massima"""
-    if jumpA == float('inf') and jumpB == float('inf'):
-        return True
-    if jumpA == float('inf') or jumpB == float('inf'):
-        return False
-    try:
-        diff = abs(float(jumpA) - float(jumpB))
-        return diff <= max_diff
-    except (ValueError, TypeError):
-        return False
-
 def check_node_compatibility(G_A, G_B, nodeA, nodeB):
     """Verifica se due nodi hanno lo stesso tipo"""
     if not is_real_node(G_A, nodeA) or not is_real_node(G_B, nodeB):
         return False
-    
-    # Controllo del tipo (ending, bifurcation, etc)
     typeA = G_A.nodes[nodeA].get('type')
     typeB = G_B.nodes[nodeB].get('type')
     return typeA == typeB
 
-
 def compute_complete_matching_score(G_A, G_B, mapping, M1_A, M1_B, M_scavalcamenti_A, M_scavalcamenti_B, 
                                    cost_weight=1.0, ridge_weight=1.0, angle_weight=1.0, edge_mode_weight=1.0):
-    """
-    Calcola uno score complessivo confrontando TUTTE le coppie di nodi mappati.
-    Il punteggio tiene conto di:
-    - Differenza nei costi del percorso minimo
-    - Differenza nel numero di scavalcamenti (nodi 'added')
-    - Differenza negli angoli tra coppie di nodi
-    - Penalità se un grafo ha collegamento diretto e l'altro solo via 'added'
-
-    Returns:
-        float: Score complessivo tra 0.0 (match pessimo) e 1.0 (match perfetto)
-        dict: Dettagli per ogni coppia di nodi
-    """
+    """Calcola score complessivo del match."""
     nodes_A = list(mapping.keys())
     total_pairs = 0
     total_score = 0
@@ -378,24 +309,7 @@ def compute_complete_matching_score(G_A, G_B, mapping, M1_A, M1_B, M_scavalcamen
 
 def match_subgraph(G_A, G_B, M1_A, M1_B, M_scavalcamenti_A, M_scavalcamenti_B, 
                   cost_threshold_rel=0.5, max_ridge_diff=1, angle_tolerance_degrees=30):
-    """
-    Verifica se due sottografi sono considerabili match secondo i criteri specificati.
-    Calcola anche lo score complessivo per tutte le coppie di nodi mappati.
-    
-    Args:
-        G_A, G_B: i due sottografi da confrontare
-        M1_A, M1_B: matrici di costo/distanza tra i nodi
-        M_scavalcamenti_A, M_scavalcamenti_B: matrici con il numero di nodi added attraversati
-        cost_threshold_rel: soglia relativa per considerare simili i costi
-        max_ridge_diff: differenza massima accettabile per gli scavalcamenti
-        angle_tolerance_degrees: tolleranza angolare in gradi
-        
-    Returns:
-        success: True se i sottografi sono match, False altrimenti
-        mapping: dizionario che mappa i nodi di G_A in G_B
-        score: punteggio complessivo del match (0-1, dove 1 è perfetto)
-        details: dettagli del punteggio per ogni coppia
-    """
+    """Verifica se due sottografi sono match compatibili."""
    
     # ----------  PRE-FILTRI RAPIDI  --------------------------------
     real_nodes_A = get_real_nodes(G_A)
