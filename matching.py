@@ -2,6 +2,42 @@ import networkx as nx
 import math
 from collections import deque
 
+
+# ---------------------------------------------------------------------------
+#  CONNECTION PATTERN HELPER
+# ---------------------------------------------------------------------------
+
+def _connection_pattern(G: nx.Graph, u: int, v: int) -> str:
+    """
+    Classifica il collegamento tra due nodi reali come:
+      • 'edge_added' : arco diretto con type=='added'
+      • 'direct'     : arco diretto con type!='added'
+      • 'via_node'   : percorso u-w-v di 2 archi reali attraverso un nodo w
+                      con type=='added'
+      • 'none'       : nessuna connessione di questi tipi
+    """
+    # 1) arco diretto
+    if G.has_edge(u, v):
+        return "edge_added" if G.edges[u, v].get("type") == "added" else "direct"
+
+    # 2) percorso u → w (added) → v con due archi reali
+    for w in G.neighbors(u):
+        if G.nodes[w].get("type") != "added":
+            continue
+        if G.edges[u, w].get("type") == "added":
+            continue
+        if not G.has_edge(w, v):
+            continue
+        if G.edges[w, v].get("type") == "added":
+            continue
+        return "via_node"
+
+    return "none"
+
+# Config flag: se True richiede stesso tipo di arco (direct vs added) nei match;
+# se False accetta mismatch penalizzandolo solo nello score.
+
+
 def is_real_node(G, node):
     """Verifica se un nodo è reale (non added)"""
     return G.nodes[node].get('type') != 'added'
@@ -46,7 +82,6 @@ def get_real_neighbors_via_added(G, node):
     """Versione cache-aware (BFS eseguito una sola volta per grafo)."""
     cache = _ensure_neighbor_cache(G)
     return cache.get(node, [])
-
 
 def calculate_angle(pos1, pos2):
     """Calcola l'angolo tra due punti in gradi"""
@@ -113,6 +148,20 @@ def _partial_edge_check(G_A, G_B, mapping, nodeA, nodeB, angle_tol):
         # esistenza percorso
         if nB_neigh not in get_real_neighbors_via_added(G_B, nodeB):
             return False
+        # Controllo tipo di connessione coerente
+        patA = _connection_pattern(G_A, nodeA, nA_neigh)
+        patB = _connection_pattern(G_B, nodeB, nB_neigh)
+
+        # Regole:
+        # - se in A è edge_added, anche in B deve esserlo
+        # - se in A è direct o via_node, in B deve essere direct o via_node
+        if patA == "edge_added":
+            if patB != "edge_added":
+                return False
+        else:
+            if patB not in ("direct", "via_node"):
+                return False
+
 
         # angolo
         angA = angle_along_path(G_A, nodeA, nA_neigh)
@@ -120,8 +169,6 @@ def _partial_edge_check(G_A, G_B, mapping, nodeA, nodeB, angle_tol):
         if not is_angle_similar(angA, angB, angle_tol):
             return False
     return True
-
-
 
 def is_angle_similar(angleA, angleB, tolerance_degrees=30):
     """Verifica se due angoli sono simili entro una tolleranza"""
@@ -154,24 +201,18 @@ def find_path_via_added(G, source, target):
             queue.append(path + [nbr])
     return None
 
-
 def angle_along_path(G, source, target):
-    """Calcola angolo iniziale lungo il percorso."""
-    path = None
     if G.has_edge(source, target):
-        # percorso diretto
         return calculate_angle(G.nodes[source]['pos'], G.nodes[target]['pos'])
-    # altrimenti cerca percorso via added
+
     path = find_path_via_added(G, source, target)
     if path and len(path) >= 2:
-        next_node = path[1]
-        return calculate_angle(G.nodes[source]['pos'], G.nodes[next_node]['pos'])
+        return calculate_angle(G.nodes[path[0]]['pos'], G.nodes[path[-1]]['pos'])
     return None
 
 def is_direct_edge(G, n1, n2):
     """True se tra n1 e n2 c'è un arco non added."""
     return G.has_edge(n1, n2) and G.edges[n1, n2].get("type") != "added"
-
 
 def check_edge_compatibility(G_A, G_B, mapping, angle_tolerance=30):
     """Verifica compatibilità delle connessioni tra nodi mappati."""
@@ -184,6 +225,16 @@ def check_edge_compatibility(G_A, G_B, mapping, angle_tolerance=30):
                 # 1) esistenza del percorso
                 if nB not in neighborsB:
                     return False
+               
+                # Controllo tipo di connessione coerente
+                patA = _connection_pattern(G_A, nodeA, nA)
+                patB = _connection_pattern(G_B, nodeB, nB)
+                if patA == "edge_added":
+                    if patB != "edge_added":
+                        return False
+                else:
+                    if patB not in ("direct", "via_node"):
+                        return False
                 # 2) verifica angolo lungo i percorsi
                 angA = angle_along_path(G_A, nodeA, nA)
                 angB = angle_along_path(G_B, nodeB, nB)
@@ -199,8 +250,9 @@ def check_node_compatibility(G_A, G_B, nodeA, nodeB):
     typeB = G_B.nodes[nodeB].get('type')
     return typeA == typeB
 
-def compute_complete_matching_score(G_A, G_B, mapping, M1_A, M1_B, M_scavalcamenti_A, M_scavalcamenti_B, 
-                                   cost_weight=1.0, ridge_weight=1.0, angle_weight=1.0, edge_mode_weight=1.0):
+def compute_complete_matching_score(G_A, G_B, mapping, M3_A, M3_B, M_scavalcamenti_A, M_scavalcamenti_B, 
+                                   cost_weight=1.0, ridge_weight=1.0, angle_weight=1.0, edge_mode_weight=1.0,
+                                   max_ridge_diff=1, cost_threshold_rel=0.5):
     """Calcola score complessivo del match."""
     nodes_A = list(mapping.keys())
     total_pairs = 0
@@ -209,9 +261,12 @@ def compute_complete_matching_score(G_A, G_B, mapping, M1_A, M1_B, M_scavalcamen
 
     sum_weights = cost_weight + ridge_weight + angle_weight + edge_mode_weight
     cost_w   = cost_weight        / sum_weights
-    ridge_w  = ridge_weight       / sum_weights
     angle_w  = angle_weight       / sum_weights
     edge_w   = edge_mode_weight   / sum_weights
+
+    # Calcolo delle distanze medie per il controllo della soglia
+    total_cost_A = 0
+    total_cost_B = 0
 
     for i in range(len(nodes_A)):
         nodeA1 = nodes_A[i]
@@ -224,30 +279,21 @@ def compute_complete_matching_score(G_A, G_B, mapping, M1_A, M1_B, M_scavalcamen
             pair_id = (nodeA1, nodeA2)
             pair_details[pair_id] = {}
 
-            # 1. Score per gli scavalcamenti
+            # 1. Controllo sugli scavalcamenti (jump di added)
             try:
                 scA = float(M_scavalcamenti_A[nodeA1][nodeA2])
                 scB = float(M_scavalcamenti_B[nodeB1][nodeB2])
-                if scA == float('inf') and scB == float('inf'):
-                    sc_score = 1.0
-                elif scA == float('inf') or scB == float('inf'):
-                    sc_score = 0.0
-                else:
-                    max_sc = max(1, max(scA, scB))
-                    sc_diff = abs(scA - scB)
-                    sc_score = max(0.0, 1.0 - (sc_diff / max_sc))
-                pair_details[pair_id]['ridge_score'] = sc_score
-                pair_details[pair_id]['ridge_A'] = scA
-                pair_details[pair_id]['ridge_B'] = scB
+                if abs(scA - scB) > max_ridge_diff:
+                    return 0.0, {}  # Scartiamo il match
             except (IndexError, TypeError, ValueError):
-                sc_score = 0.5
-                pair_details[pair_id]['ridge_score'] = sc_score
-                pair_details[pair_id]['error'] = "ridge_calc_error"
+                return 0.0, {}  # Scartiamo il match in caso di errore
 
-            # 2. Score per i costi di percorso
+            # 2. Controllo sulle distanze
             try:
-                costA = float(M1_A[nodeA1][nodeA2])
-                costB = float(M1_B[nodeB1][nodeB2])
+                costA = float(M3_A[nodeA1][nodeA2])
+                costB = float(M3_B[nodeB1][nodeB2])
+                total_cost_A += costA
+                total_cost_B += costB
                 if costA == float('inf') and costB == float('inf'):
                     cost_score = 1.0
                 elif costA == float('inf') or costB == float('inf'):
@@ -264,7 +310,7 @@ def compute_complete_matching_score(G_A, G_B, mapping, M1_A, M1_B, M_scavalcamen
                 pair_details[pair_id]['cost_score'] = cost_score
                 pair_details[pair_id]['error'] = "cost_calc_error"
 
-            # 3. Score per gli angoli
+            # 3. Controllo sugli angoli
             try:
                 posA1 = G_A.nodes[nodeA1]['pos']
                 posA2 = G_A.nodes[nodeA2]['pos']
@@ -273,6 +319,8 @@ def compute_complete_matching_score(G_A, G_B, mapping, M1_A, M1_B, M_scavalcamen
                 angA = calculate_angle(posA1, posA2)
                 angB = calculate_angle(posB1, posB2)
                 ang_diff = min(abs(angA - angB), 360.0 - abs(angA - angB))
+                if ang_diff > cost_threshold_rel * 180:  # Controllo soglia angoli
+                    return 0.0, {}  # Scartiamo il match
                 angle_score = max(0.0, 1.0 - (ang_diff / 180.0))
                 pair_details[pair_id]['angle_score'] = angle_score
                 pair_details[pair_id]['angle_A'] = angA
@@ -293,7 +341,6 @@ def compute_complete_matching_score(G_A, G_B, mapping, M1_A, M1_B, M_scavalcamen
             pair_details[pair_id]['edge_mode_score'] = edge_mode_score
 
             pair_score = (
-                ridge_w * sc_score +
                 cost_w * cost_score +
                 angle_w * angle_score +
                 edge_w * edge_mode_score
@@ -303,11 +350,17 @@ def compute_complete_matching_score(G_A, G_B, mapping, M1_A, M1_B, M_scavalcamen
             total_score += pair_score
             total_pairs += 1
 
+    # Controllo soglia sulle distanze medie
+    avg_cost_A = total_cost_A / total_pairs if total_pairs > 0 else float('inf')
+    avg_cost_B = total_cost_B / total_pairs if total_pairs > 0 else float('inf')
+    if abs(avg_cost_A - avg_cost_B) > cost_threshold_rel * avg_cost_A:
+        return 0.0, {}  # Scartiamo il match
+
     final_score = total_score / total_pairs if total_pairs > 0 else 0
     return final_score, pair_details
 
 
-def match_subgraph(G_A, G_B, M1_A, M1_B, M_scavalcamenti_A, M_scavalcamenti_B, 
+def match_subgraph(G_A, G_B, M3_A, M3_B, M_scavalcamenti_A, M_scavalcamenti_B, 
                   cost_threshold_rel=0.5, max_ridge_diff=1, angle_tolerance_degrees=30):
     """Verifica se due sottografi sono match compatibili."""
    
@@ -376,10 +429,11 @@ def match_subgraph(G_A, G_B, M1_A, M1_B, M_scavalcamenti_A, M_scavalcamenti_B,
     if success:
         if not _orientation_is_consistent(G_A, G_B, mapping):
             return False, {}, 0.0, {}  # match specchiato, lo scartiamo
+
     score, details = compute_complete_matching_score(
-        G_A, G_B, mapping, M1_A, M1_B, M_scavalcamenti_A, M_scavalcamenti_B
+    G_A, G_B, mapping, M3_A, M3_B, M_scavalcamenti_A, M_scavalcamenti_B,
+    cost_weight=1.0, angle_weight=2.0, edge_mode_weight=1.0,
+    max_ridge_diff=max_ridge_diff, cost_threshold_rel=cost_threshold_rel
     )
     return success, mapping, score, details
 
-    # else:
-    #     return False, {}, 0.0, {}

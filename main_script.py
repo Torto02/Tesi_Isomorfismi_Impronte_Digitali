@@ -5,9 +5,10 @@ import datetime
 
 # Importa funzioni dai moduli creati
 from graph_processing import load_fingerprint_and_compute
-from subgraph_operations import get_subgraph_within_radius, get_connected_subgraphs_of_minutiae, get_connected_subgraphs_of_minutiae_parallel
+from subgraph_operations import get_subgraph_within_radius, get_connected_subgraphs_of_minutiae_parallel
 from matching import match_subgraph
 from plotting import plot_and_save_subgraph, plot_mapping, plot_final_graphs,plot_match_with_context
+import time
 
 # --- Definisci qui le costanti per i percorsi ---
 # NOTA: Aggiorna questi percorsi con quelli corretti sul tuo sistema
@@ -21,10 +22,10 @@ OUTPUT_FOLDER_FINAL_GRAPHS = "/Users/riccardotortorelli/Desktop/Tesi/Output_Fina
 RADIUS_PERCENTAGE_A = 0.1 # Percentuale della max distanza euclidea per il raggio in A
 RADIUS_PERCENTAGE_B = 0.12 # Percentuale della max distanza euclidea per il raggio in B
 MINUTIAE_SUBGRAPH_SIZE = 6 # Dimensione dei sotto-sottografi di minuzie da cercare
-MIN_MATCH_NODES = 4        # Numero minimo di nodi matchati per considerare un match valido (>=4)
-MATCHING_COST_THRESHOLD_REL = 0.7 # Soglia differenza relativa per M1 cost (0.6 = 60% di tolleranza)
-MATCHING_MAX_RIDGE_DIFF = 2     # Soglia differenza assoluta per M_scavalcamenti
-MATCHING_ANGLE_TOLERANCE_DEGREES = 35 # Soglia tolleranza angolare in gradi (es. +/- 35 gradi)
+MIN_MATCH_NODES = 6       # Numero minimo di nodi matchati per considerare un match valido (>=4)
+MATCHING_COST_THRESHOLD_REL = 0.3 # Soglia differenza relativa per M1 cost (0.6 = 60% di tolleranza)
+MATCHING_MAX_RIDGE_DIFF = 1     # Soglia differenza assoluta per M_scavalcamenti
+MATCHING_ANGLE_TOLERANCE_DEGREES = 28 # Soglia tolleranza angolare in gradi (es. +/- 35 gradi)
 
 def find_max_finite_distance(matrix):
     """Trova il massimo valore finito in una matrice di distanze (usato per M3)."""
@@ -36,59 +37,6 @@ def find_max_finite_distance(matrix):
             if isinstance(val, (int, float)) and val != float('inf') and val > max_dist:
                 max_dist = val
     return max_dist if max_dist > 0 else 100.0
-
-# Puoi aggiungere questa funzione in main_script.py o creare un nuovo script
-
-def analyze_pair_details(all_matches, match_id, pair):
-    """
-    Analizza e visualizza i dettagli di una specifica coppia di nodi in un match.
-    
-    Args:
-        all_matches: lista di tutti i match
-        match_id: ID del match da analizzare
-        pair: tupla (nodeA1, nodeA2) che identifica la coppia
-    """
-    # Trova il match specifico
-    match = next((m for m in all_matches if m['id'] == match_id), None)
-    if not match:
-        print(f"Match #{match_id} non trovato.")
-        return
-    
-    # Trova i dettagli della coppia
-    if pair not in match['pair_details']:
-        print(f"Coppia {pair} non trovata nel match #{match_id}.")
-        return
-    
-    details = match['pair_details'][pair]
-    mapping = match['mapping']
-    nodeA1, nodeA2 = pair
-    nodeB1, nodeB2 = mapping[nodeA1], mapping[nodeA2]
-    
-    print(f"\n--- Analisi Dettagliata Coppia ({nodeA1}, {nodeA2}) → ({nodeB1}, {nodeB2}) ---")
-    print(f"Score totale coppia: {details['total_score']:.4f}")
-    
-    # Dettagli scavalcamenti
-    print("\nScavalcamenti:")
-    print(f"  Grafo A: {details.get('ridge_A', 'N/A')}")
-    print(f"  Grafo B: {details.get('ridge_B', 'N/A')}")
-    print(f"  Score: {details.get('ridge_score', 'N/A'):.4f}")
-    
-    # Dettagli costi
-    print("\nCosti percorso:")
-    print(f"  Grafo A: {details.get('cost_A', 'N/A')}")
-    print(f"  Grafo B: {details.get('cost_B', 'N/A')}")
-    print(f"  Score: {details.get('cost_score', 'N/A'):.4f}")
-    
-    # Dettagli angoli
-    print("\nAngoli:")
-    print(f"  Grafo A: {details.get('angle_A', 'N/A'):.2f}°")
-    print(f"  Grafo B: {details.get('angle_B', 'N/A'):.2f}°")
-    print(f"  Differenza: {details.get('angle_diff', 'N/A'):.2f}°")
-    print(f"  Score: {details.get('angle_score', 'N/A'):.4f}")
-    
-    # Eventuali errori
-    if 'error' in details:
-        print(f"\nErrori: {details['error']}")
 
 def main():
     # --- Crea una cartella di output unica per questa esecuzione (solo per output diversi dalle matrici) ---
@@ -283,13 +231,33 @@ def main():
     #! --- Ricerca e Matching dei Sotto-Sottografi di Minuzie ---
     print(f"\n--- Ricerca Sotto-Sottografi Connessi di {MINUTIAE_SUBGRAPH_SIZE} Minuzie ---")
 
-    sub_subgraphs_A = get_connected_subgraphs_of_minutiae_parallel(S_A, size=MINUTIAE_SUBGRAPH_SIZE)
-    sub_subgraphs_B = get_connected_subgraphs_of_minutiae_parallel(S_B, size=MINUTIAE_SUBGRAPH_SIZE)
+    # Calcoliamo il tempo di ricerca dei sotto-sottografi
+    print(f"Calcolo dei sotto-sottografi connessi di {MINUTIAE_SUBGRAPH_SIZE} minuzie in S_A e S_B...")
 
-   
+    start_time_A = time.time()
+    sub_subgraphs_A = get_connected_subgraphs_of_minutiae_parallel(S_A, size=MINUTIAE_SUBGRAPH_SIZE)
+    elapsed_A = time.time() - start_time_A
+    print(f"Tempo impiegato per S_A: {elapsed_A:.2f} secondi.")
+
+    start_time_B = time.time()
+    sub_subgraphs_B = get_connected_subgraphs_of_minutiae_parallel(S_B, size=MINUTIAE_SUBGRAPH_SIZE)
+    elapsed_B = time.time() - start_time_B
+    print(f"Tempo impiegato per S_B: {elapsed_B:.2f} secondi.")
+
+
 
     print(f"Trovati {len(sub_subgraphs_A)} sotto-sottografi connessi di {MINUTIAE_SUBGRAPH_SIZE} minuzie in S_A.")
     print(f"Trovati {len(sub_subgraphs_B)} sotto-sottografi connessi di {MINUTIAE_SUBGRAPH_SIZE} minuzie in S_B.")
+
+    # --- Verifica presenza di un sottografo specifico ---------------------------------
+    TARGET_NODES_A = {827, 895, 868, 837, 878, 828}
+    TARGET_NODES_B = {1310, 1330, 1329, 1336, 1349, 1318}
+
+    has_target_A = any(TARGET_NODES_A.issubset(set(nodes)) for nodes, _ in sub_subgraphs_A)
+    has_target_B = any(TARGET_NODES_B.issubset(set(nodes)) for nodes, _ in sub_subgraphs_B)
+
+    print(f"\nVerifica sottografo target in A: {'Trovato' if has_target_A else 'NON trovato'}")
+    print(f"Verifica sottografo target in B: {'Trovato' if has_target_B else 'NON trovato'}\n")
 
    
     if not sub_subgraphs_A or not sub_subgraphs_B:
@@ -338,7 +306,7 @@ def main():
             # Esegui il matching tra i due sottografi
             success, mapping, score, pair_details = match_subgraph(
                 subG_A, subG_B,
-                M1_A, M1_B,
+                M3_A, M3_B,
                 M_scavalcamenti_A, M_scavalcamenti_B,
                 cost_threshold_rel=MATCHING_COST_THRESHOLD_REL,
                 max_ridge_diff=MATCHING_MAX_RIDGE_DIFF,
@@ -346,10 +314,10 @@ def main():
             )
 
             checked_count += 1
-            if checked_count > 0 and checked_count % 5000 == 0: # Aggiornamento meno frequente
+            if checked_count > 0 and checked_count % 100000 == 0: # Aggiornamento meno frequente
                 print(f"  Controllata coppia {checked_count}/{total_pairs_to_check}...")
             
-            if not success:
+            if not success or score == 0.0:
                 continue
                 
             # Converti il mapping in una rappresentazione immutabile per il controllo dei duplicati
