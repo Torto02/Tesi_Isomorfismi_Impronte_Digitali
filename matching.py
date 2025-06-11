@@ -1,231 +1,439 @@
+import networkx as nx
 import math
+from collections import deque
 
-def is_cost_similar(cA, cB, threshold=1.5):
+
+# ---------------------------------------------------------------------------
+#  CONNECTION PATTERN HELPER
+# ---------------------------------------------------------------------------
+
+def _connection_pattern(G: nx.Graph, u: int, v: int) -> str:
     """
-    Verifica se due costi (M1 o M2) sono abbastanza simili 
-    threshold=0.1 è molto stringente
+    Classifica il collegamento tra due nodi reali come:
+      • 'edge_added' : arco diretto con type=='added'
+      • 'direct'     : arco diretto con type!='added'
+      • 'via_node'   : percorso u-w-v di 2 archi reali attraverso un nodo w
+                      con type=='added'
+      • 'none'       : nessuna connessione di questi tipi
     """
+    # 1) arco diretto
+    if G.has_edge(u, v):
+        return "edge_added" if G.edges[u, v].get("type") == "added" else "direct"
 
-    if cA == float('inf') and cB == float('inf'):
-        return True 
-    if cA == float('inf') or cB == float('inf'):
-        return False 
+    # 2) percorso u → w (added) → v con due archi reali
+    for w in G.neighbors(u):
+        if G.nodes[w].get("type") != "added":
+            continue
+        if G.edges[u, w].get("type") == "added":
+            continue
+        if not G.has_edge(w, v):
+            continue
+        if G.edges[w, v].get("type") == "added":
+            continue
+        return "via_node"
+
+    return "none"
+
+# Config flag: se True richiede stesso tipo di arco (direct vs added) nei match;
+# se False accetta mismatch penalizzandolo solo nello score.
 
 
-    if abs(cA) < 1e-9 and abs(cB) < 1e-9:
-        return True 
+def is_real_node(G, node):
+    """Verifica se un nodo è reale (non added)"""
+    return G.nodes[node].get('type') != 'added'
 
-    # Calcolo differenza relativa
-    denom = max(abs(cA), abs(cB))
-    if denom < 1e-9: 
-         return True
-    diff = abs(cA - cB) / denom
+def get_real_nodes(G):
+    """Restituisce tutti i nodi reali del grafo"""
+    return [node for node in G.nodes() if is_real_node(G, node)]
 
-    return diff <= threshold
-
-def is_ridge_jump_similar(jumpA, jumpB, max_diff=2):
+# ------------------------------------------------------------------
+# CACHING -----------------------------------------------------------
+# ------------------------------------------------------------------
+def _ensure_neighbor_cache(G):
     """
-    Verifica se la differenza in M4 (numero di salti/ridge jumps) è sotto la soglia.
+    Costruisce (una sola volta) e salva in G.graph['_real_neighbor_cache']
+    la lista dei vicini reali raggiungibili via-nodi-'added' per OGNI nodo reale.
     """
+    if '_real_neighbor_cache' in G.graph:
+        return G.graph['_real_neighbor_cache']
 
-    if jumpA == float('inf') and jumpB == float('inf'):
-        return True
-    if jumpA == float('inf') or jumpB == float('inf'):
-        return False
+    cache = {}
+    real_nodes = [n for n in G.nodes if G.nodes[n].get('type') != 'added']
+    for src in real_nodes:
+        reached = set()
+        visited = {src}
+        q = deque([src])
+        while q:
+            cur = q.popleft()
+            for nbr in G.neighbors(cur):
+                if nbr in visited:
+                    continue
+                visited.add(nbr)
+                if G.nodes[nbr].get('type') != 'added':
+                    reached.add(nbr)
+                else:
+                    q.append(nbr)
+        reached.discard(src)
+        cache[src] = list(reached)
+    G.graph['_real_neighbor_cache'] = cache
+    return cache
 
+def get_real_neighbors_via_added(G, node):
+    """Versione cache-aware (BFS eseguito una sola volta per grafo)."""
+    cache = _ensure_neighbor_cache(G)
+    return cache.get(node, [])
 
-    return abs(jumpA - jumpB) <= max_diff
+def calculate_angle(pos1, pos2):
+    """Calcola l'angolo tra due punti in gradi"""
+    dx = pos2[0] - pos1[0]
+    dy = pos2[1] - pos1[1]
+    if abs(dx) < 1e-6 and abs(dy) < 1e-6:
+        return 0.0
+    angle_rad = math.atan2(dy, dx)
+    return math.degrees(angle_rad) % 360
 
-#!--- Algoritmo di Matching Ricorsivo ---
+def _orientation(p, q, r):
+    """Restituisce il prodotto vettoriale orientato: >0 antiorario, <0 orario."""
+    return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
 
-def check_transform_is_ok(G_A, G_B, current_mapping,
-                         max_rotation_deg=80,
-                         allow_reflection=False):
-    """
-    Verifica se la trasformazione che mappa i nodi di G_A in quelli di G_B
-    (secondo `current_mapping`) non introduce riflessione (se allow_reflection=False)
-    e non ha rotazioni superiori a 'max_rotation_deg' gradi.
-
-    Ritorna True se la trasformazione è "accettabile", False altrimenti.
-    """
-
-    if len(current_mapping) < 3:
-        return True
-
-    A_points = []
-    B_points = []
-    for a_node, b_node in current_mapping.items():
-        posA = G_A.nodes[a_node].get('pos')
-        posB = G_B.nodes[b_node].get('pos')
-        if not posA or not posB:
-            return True
-        A_points.append(posA)
-        B_points.append(posB)
-
-    def centroid(pts):
-        cx = sum(p[0] for p in pts) / len(pts)
-        cy = sum(p[1] for p in pts) / len(pts)
-        return (cx, cy)
-
-    cA = centroid(A_points)
-    cB = centroid(B_points)
-
-    def vec_sub(p1, p2):
-        return (p1[0] - p2[0], p1[1] - p2[1])
-
-    A_vecs = [vec_sub(p, cA) for p in A_points]
-    B_vecs = [vec_sub(p, cB) for p in B_points]
-
-
-    def cross_z(v1, v2):
-        return v1[0]*v2[1] - v1[1]*v2[0]
-
-    sign_mismatches = 0
-    total_checked = 0
-    for i in range(1, len(A_vecs)-1):
-        ca = cross_z(A_vecs[i], A_vecs[i+1])
-        cb = cross_z(B_vecs[i], B_vecs[i+1])
-        if ca != 0 and cb != 0:
-            total_checked += 1
-            if (ca * cb) < 0:
-                # Hanno segni opposti => riflessione su questo triangolo
-                sign_mismatches += 1
-
-    if not allow_reflection and total_checked > 0:
-        fraction = sign_mismatches / total_checked
-        if fraction > 0.5:
-            # troppa differenza di segno => riflessione netta
-            return False
-
-    # 4) Calcolo dell’angolo medio di rotazione (un metodo semplificato):
-
-    def vec_angle(v):
-        # Restituisce l'angolo in [0, 2π) del vettore v rispetto all'asse x
-        return math.atan2(v[1], v[0]) if (v[0] != 0 or v[1] != 0) else 0
-
-    A_angles = [vec_angle(v) for v in A_vecs]
-    B_angles = [vec_angle(v) for v in B_vecs]
-
-
-    diffs = []
-    for a_ang, b_ang in zip(A_angles, B_angles):
-        diff = b_ang - a_ang
-        while diff > math.pi:
-            diff -= 2*math.pi
-        while diff <= -math.pi:
-            diff += 2*math.pi
-        diffs.append(diff)
-
-
-    avg_diff = sum(diffs)/len(diffs)
-    # Converte in gradi
-    avg_diff_deg = abs(avg_diff * 180.0 / math.pi)
-
-    if avg_diff_deg > max_rotation_deg:
-        # Rotazione media troppo ampia => scarta
-        return False
-
+def _orientation_is_consistent(G_A, G_B, mapping):
+    """Controlla che il segno del prodotto vettoriale tra triplette di nodi mappati sia consistente."""
+    for nodeA, nodeB in mapping.items():
+        neighborsA = get_real_neighbors_via_added(G_A, nodeA)
+        for i in range(len(neighborsA)):
+            for j in range(i+1, len(neighborsA)):
+                a1, a2 = neighborsA[i], neighborsA[j]
+                if a1 not in mapping or a2 not in mapping:
+                    continue
+                b1 = mapping[a1]
+                b2 = mapping[a2]
+                try:
+                    orientA = _orientation(G_A.nodes[nodeA]["pos"],
+                                           G_A.nodes[a1]["pos"],
+                                           G_A.nodes[a2]["pos"])
+                    orientB = _orientation(G_B.nodes[nodeB]["pos"],
+                                           G_B.nodes[b1]["pos"],
+                                           G_B.nodes[b2]["pos"])
+                except KeyError:
+                    continue
+                if abs(orientA) < 1e-6 or abs(orientB) < 1e-6:
+                    continue
+                if orientA * orientB < 0:
+                    return False
     return True
 
+# ------------------------------------------------------------------
+# FILTRI E HEURISTICHE ---------------------------------------------
+# ------------------------------------------------------------------
+def _build_candidate_map(G_A, G_B, nodes_A, nodes_B):
+    """Per ogni nodo di A restituisce la lista dei nodi B compatibili."""
+    # Pre-compute grado reale (più economico dei degree() classici)
+    degA = {n: len(get_real_neighbors_via_added(G_A, n)) for n in nodes_A}
+    degB = {n: len(get_real_neighbors_via_added(G_B, n)) for n in nodes_B}
 
-def match_subgraphs(
-    G_A, G_B,            
-    M1_A, M2_A, M4_A,  
-    M1_B, M2_B, M4_B,  
-    nodeA, nodeB,      
-    mapping=None,  
-    visited_pairs=None,  
-    cost_threshold_rel=0.5, 
-    max_ridge_diff=2      
-):
-    """
-    Tenta di effettuare il match (allineamento) ricorsivo di due sottografi G_A e G_B,
-    partendo dalla coppia (nodeA, nodeB). Verifica:
-      1) Tipo di nodo.
-      2) Compatibilità del mapping corrente.
-      3) Ricorsione sui vicini *all'interno dei sottografi G_A e G_B*,
-         verificando la similarità dei costi (M1, M2) e dei salti (M4)
-         *usando i valori dalle matrici originali*.
+    cand = {}
+    for nA in nodes_A:
+        cand[nA] = [nB for nB in nodes_B
+                    if (G_A.nodes[nA]['type'] == G_B.nodes[nB]['type'] and
+                        degA[nA]          == degB[nB])]
+    return cand
 
-    Ritorna True se il matching ricorsivo ha successo a partire da (nodeA, nodeB),
-    altrimenti False. Il mapping viene aggiornato inplace.
-    """
+def _partial_edge_check(G_A, G_B, mapping, nodeA, nodeB, angle_tol):
+    """Controlla coerenza delle connessioni già mappate."""
+    for nA_neigh in get_real_neighbors_via_added(G_A, nodeA):
+        if nA_neigh not in mapping:
+            continue
+        nB_neigh = mapping[nA_neigh]
 
-    if mapping is None:
-        mapping = {}
-    if visited_pairs is None:
-        visited_pairs = set()
+        # esistenza percorso
+        if nB_neigh not in get_real_neighbors_via_added(G_B, nodeB):
+            return False
+        # Controllo tipo di connessione coerente
+        patA = _connection_pattern(G_A, nodeA, nA_neigh)
+        patB = _connection_pattern(G_B, nodeB, nB_neigh)
 
-    # Controllo anti-ciclo: se abbiamo già visitato questa coppia, OK 
-    if (nodeA, nodeB) in visited_pairs:
-        return True
-    visited_pairs.add((nodeA, nodeB))
+        # Regole:
+        # - se in A è edge_added, anche in B deve esserlo
+        # - se in A è direct o via_node, in B deve essere direct o via_node
+        if patA == "edge_added":
+            if patB != "edge_added":
+                return False
+        else:
+            if patB not in ("direct", "via_node"):
+                return False
 
-    # 1) Controllo Tipi di Nodo: Devono essere uguali
+
+        # angolo
+        angA = angle_along_path(G_A, nodeA, nA_neigh)
+        angB = angle_along_path(G_B, nodeB, nB_neigh)
+        if not is_angle_similar(angA, angB, angle_tol):
+            return False
+    return True
+
+def is_angle_similar(angleA, angleB, tolerance_degrees=30):
+    """Verifica se due angoli sono simili entro una tolleranza"""
+    if angleA is None or angleB is None:
+        return False
+    try:
+        diff = abs(angleA - angleB)
+        angular_distance = min(diff, 360.0 - diff)
+        return angular_distance <= tolerance_degrees
+    except (ValueError, TypeError):
+        return False
+
+def find_path_via_added(G, source, target):
+    """Trova percorso minimo via nodi added."""
+    # BFS che evita di passare per real nodes diversi da source e target
+    visited = {source}
+    queue = deque([[source]])
+    while queue:
+        path = queue.popleft()
+        node = path[-1]
+        if node == target:
+            return path
+        for nbr in G.neighbors(node):
+            if nbr in visited:
+                continue
+            # consentiamo real only se è il target
+            if is_real_node(G, nbr) and nbr != target:
+                continue
+            visited.add(nbr)
+            queue.append(path + [nbr])
+    return None
+
+def angle_along_path(G, source, target):
+    if G.has_edge(source, target):
+        return calculate_angle(G.nodes[source]['pos'], G.nodes[target]['pos'])
+
+    path = find_path_via_added(G, source, target)
+    if path and len(path) >= 2:
+        return calculate_angle(G.nodes[path[0]]['pos'], G.nodes[path[-1]]['pos'])
+    return None
+
+def is_direct_edge(G, n1, n2):
+    """True se tra n1 e n2 c'è un arco non added."""
+    return G.has_edge(n1, n2) and G.edges[n1, n2].get("type") != "added"
+
+def check_edge_compatibility(G_A, G_B, mapping, angle_tolerance=30):
+    """Verifica compatibilità delle connessioni tra nodi mappati."""
+    for nodeA, nodeB in mapping.items():
+        neighborsA = get_real_neighbors_via_added(G_A, nodeA)
+        neighborsB = get_real_neighbors_via_added(G_B, nodeB)
+        for nA in neighborsA:
+            if nA in mapping:
+                nB = mapping[nA]
+                # 1) esistenza del percorso
+                if nB not in neighborsB:
+                    return False
+               
+                # Controllo tipo di connessione coerente
+                patA = _connection_pattern(G_A, nodeA, nA)
+                patB = _connection_pattern(G_B, nodeB, nB)
+                if patA == "edge_added":
+                    if patB != "edge_added":
+                        return False
+                else:
+                    if patB not in ("direct", "via_node"):
+                        return False
+                # 2) verifica angolo lungo i percorsi
+                angA = angle_along_path(G_A, nodeA, nA)
+                angB = angle_along_path(G_B, nodeB, nB)
+                if not is_angle_similar(angA, angB, tolerance_degrees=angle_tolerance):
+                    return False
+    return True
+
+def check_node_compatibility(G_A, G_B, nodeA, nodeB):
+    """Verifica se due nodi hanno lo stesso tipo"""
+    if not is_real_node(G_A, nodeA) or not is_real_node(G_B, nodeB):
+        return False
     typeA = G_A.nodes[nodeA].get('type')
     typeB = G_B.nodes[nodeB].get('type')
-    if typeA != typeB:
-        return False
+    return typeA == typeB
 
-    # 2) Controllo Coerenza Mapping:
-    #    - Se nodeA è già mappato, deve essere mappato a nodeB.
-    #    - Se nodeB è già mappato, deve essere mappato da nodeA.
-    if nodeA in mapping and mapping[nodeA] != nodeB:
-        return False
-    for existing_a, existing_b in mapping.items():
-        if existing_b == nodeB and existing_a != nodeA:
-             return False
+def compute_complete_matching_score(G_A, G_B, mapping, M3_A, M3_B, M_scavalcamenti_A, M_scavalcamenti_B, 
+                                   cost_weight=1.0, ridge_weight=1.0, angle_weight=1.0, edge_mode_weight=1.0,
+                                   max_ridge_diff=1, cost_threshold_rel=0.5):
+    """Calcola score complessivo del match."""
+    nodes_A = list(mapping.keys())
+    total_pairs = 0
+    total_score = 0
+    pair_details = {}
 
-    mapping[nodeA] = nodeB
+    sum_weights = cost_weight + ridge_weight + angle_weight + edge_mode_weight
+    cost_w   = cost_weight        / sum_weights
+    angle_w  = angle_weight       / sum_weights
+    edge_w   = edge_mode_weight   / sum_weights
 
-    # 3) Ricorsione DFS Parallelo sui Vicini *all'interno dei sottografi*
-    neighborsA = list(G_A.neighbors(nodeA))
-    neighborsB = list(G_B.neighbors(nodeB))
+    # Calcolo delle distanze medie per il controllo della soglia
+    total_cost_A = 0
+    total_cost_B = 0
 
-    # Tentiamo di trovare un partner valido in B per ogni vicino di A
-    for nA in neighborsA:
-        found_match_for_nA = False
-        potential_matches_for_nA = [nB for nB in neighborsB
-                                    if nB not in mapping.values() or mapping.get(nA) == nB]
+    for i in range(len(nodes_A)):
+        nodeA1 = nodes_A[i]
+        nodeB1 = mapping[nodeA1]
 
-        for nB in potential_matches_for_nA:
-            # Controlla la similarità delle metriche M1, M2, M4 tra (nodeA, nA) e (nodeB, nB)
+        for j in range(i+1, len(nodes_A)):
+            nodeA2 = nodes_A[j]
+            nodeB2 = mapping[nodeA2]
 
-            # --- Check M1 ---
-            cost_M1_A = M1_A[nodeA][nA]
-            cost_M1_B = M1_B[nodeB][nB]
-            if not is_cost_similar(cost_M1_A, cost_M1_B, cost_threshold_rel):
+            pair_id = (nodeA1, nodeA2)
+            pair_details[pair_id] = {}
+
+            # 1. Controllo sugli scavalcamenti (jump di added)
+            try:
+                scA = float(M_scavalcamenti_A[nodeA1][nodeA2])
+                scB = float(M_scavalcamenti_B[nodeB1][nodeB2])
+                if abs(scA - scB) > max_ridge_diff:
+                    return 0.0, {}  # Scartiamo il match
+            except (IndexError, TypeError, ValueError):
+                return 0.0, {}  # Scartiamo il match in caso di errore
+
+            # 2. Controllo sulle distanze
+            try:
+                costA = float(M3_A[nodeA1][nodeA2])
+                costB = float(M3_B[nodeB1][nodeB2])
+                total_cost_A += costA
+                total_cost_B += costB
+                if costA == float('inf') and costB == float('inf'):
+                    cost_score = 1.0
+                elif costA == float('inf') or costB == float('inf'):
+                    cost_score = 0.0
+                else:
+                    max_cost = max(0.0001, max(costA, costB))
+                    cost_diff = abs(costA - costB)
+                    cost_score = max(0.0, 1.0 - (cost_diff / max_cost))
+                pair_details[pair_id]['cost_score'] = cost_score
+                pair_details[pair_id]['cost_A'] = costA
+                pair_details[pair_id]['cost_B'] = costB
+            except (IndexError, TypeError, ValueError):
+                cost_score = 0.5
+                pair_details[pair_id]['cost_score'] = cost_score
+                pair_details[pair_id]['error'] = "cost_calc_error"
+
+            # 3. Controllo sugli angoli
+            try:
+                posA1 = G_A.nodes[nodeA1]['pos']
+                posA2 = G_A.nodes[nodeA2]['pos']
+                posB1 = G_B.nodes[nodeB1]['pos']
+                posB2 = G_B.nodes[nodeB2]['pos']
+                angA = calculate_angle(posA1, posA2)
+                angB = calculate_angle(posB1, posB2)
+                ang_diff = min(abs(angA - angB), 360.0 - abs(angA - angB))
+                if ang_diff > cost_threshold_rel * 180:  # Controllo soglia angoli
+                    return 0.0, {}  # Scartiamo il match
+                angle_score = max(0.0, 1.0 - (ang_diff / 180.0))
+                pair_details[pair_id]['angle_score'] = angle_score
+                pair_details[pair_id]['angle_A'] = angA
+                pair_details[pair_id]['angle_B'] = angB
+                pair_details[pair_id]['angle_diff'] = ang_diff
+            except (KeyError, TypeError, ValueError):
+                angle_score = 0.5
+                pair_details[pair_id]['angle_score'] = angle_score
+                pair_details[pair_id]['error'] = "angle_calc_error"
+
+            # 4. Penalità collegamento diretto vs via added
+            directA = is_direct_edge(G_A, nodeA1, nodeA2)
+            directB = is_direct_edge(G_B, nodeB1, nodeB2)
+            if directA == directB:
+                edge_mode_score = 0.4  # contribuisce 0 se la modalità è coerente (nessun premio)
+            else:
+                edge_mode_score = -0.01  # penalità piena in caso di mismatch
+            pair_details[pair_id]['edge_mode_score'] = edge_mode_score
+
+            pair_score = (
+                cost_w * cost_score +
+                angle_w * angle_score +
+                edge_w * edge_mode_score
+            )
+            pair_details[pair_id]['total_score'] = pair_score
+
+            total_score += pair_score
+            total_pairs += 1
+
+    # Controllo soglia sulle distanze medie
+    avg_cost_A = total_cost_A / total_pairs if total_pairs > 0 else float('inf')
+    avg_cost_B = total_cost_B / total_pairs if total_pairs > 0 else float('inf')
+    if abs(avg_cost_A - avg_cost_B) > cost_threshold_rel * avg_cost_A:
+        return 0.0, {}  # Scartiamo il match
+
+    final_score = total_score / total_pairs if total_pairs > 0 else 0
+    return final_score, pair_details
+
+
+def match_subgraph(G_A, G_B, M3_A, M3_B, M_scavalcamenti_A, M_scavalcamenti_B, 
+                  cost_threshold_rel=0.5, max_ridge_diff=1, angle_tolerance_degrees=30):
+    """Verifica se due sottografi sono match compatibili."""
+   
+    # ----------  PRE-FILTRI RAPIDI  --------------------------------
+    real_nodes_A = get_real_nodes(G_A)
+    real_nodes_B = get_real_nodes(G_B)
+    if len(real_nodes_A) != len(real_nodes_B):
+        return False, {}, 0.0, {}
+
+    # 1) multiset tipi
+    if sorted(G_A.nodes[n]['type'] for n in real_nodes_A) != \
+       sorted(G_B.nodes[n]['type'] for n in real_nodes_B):
+        return False, {}, 0.0, {}
+
+    # 2) multiset gradi reali
+    degA = sorted(len(get_real_neighbors_via_added(G_A, n)) for n in real_nodes_A)
+    degB = sorted(len(get_real_neighbors_via_added(G_B, n)) for n in real_nodes_B)
+    if degA != degB:
+        return False, {}, 0.0, {}
+
+    
+    # Prova tutte le permutazioni possibili di mapping
+    best_mapping = None
+    best_score = -1
+    best_details = {}
+
+        # ----------  CANDIDATE MAP + BACKTRACK  ------------------------
+    cand_map = _build_candidate_map(G_A, G_B, real_nodes_A, real_nodes_B)
+    # Se qualche nodo non ha candidati, match impossibile
+    if any(len(v) == 0 for v in cand_map.values()):
+        return False, {}, 0.0, {}
+
+    # Ordina i nodi A per branching factor minimo (MRV)
+    ordered_A = sorted(real_nodes_A, key=lambda n: len(cand_map[n]))
+
+    best_mapping = None  # ci basta il primo valido
+    def backtrack(idx, mapping, usedB):
+        nonlocal best_mapping
+        if idx == len(ordered_A):
+            best_mapping = mapping.copy()
+            return True
+
+        nodeA = ordered_A[idx]
+        for nodeB in cand_map[nodeA]:
+            if nodeB in usedB:
                 continue
-
-            # --- Check M2 ---
-            cost_M2_A = M2_A[nodeA][nA]
-            cost_M2_B = M2_B[nodeB][nB]
-            if not is_cost_similar(cost_M2_A, cost_M2_B, cost_threshold_rel):
+            # pruning parziale sugli archi già fissati
+            if not _partial_edge_check(G_A, G_B, mapping, nodeA, nodeB,
+                                       angle_tolerance_degrees):
                 continue
-
-            # --- Check M4 ---
-            jump_M4_A = M4_A[nodeA][nA]
-            jump_M4_B = M4_B[nodeB][nB]
-            if not is_ridge_jump_similar(jump_M4_A, jump_M4_B, max_ridge_diff):
-                continue
-
-            # Se le metriche sono simili, tenta la ricorsione
-            if match_subgraphs(
-                G_A, G_B,
-                M1_A, M2_A, M4_A,
-                M1_B, M2_B, M4_B,
-                nA, nB, mapping, visited_pairs.copy(), # Usa copia di visited
-                cost_threshold_rel, max_ridge_diff
-            ):
-                found_match_for_nA = True
-                break # Trovato un match per nA, passa al prossimo vicino di nodeA
-
-        # Se, dopo aver provato tutti i vicini di nodeB, non abbiamo trovato
-        # un partner valido per nA, allora il matching a partire da (nodeA, nodeB) fallisce.
-        if not found_match_for_nA:
+            mapping[nodeA] = nodeB
+            usedB.add(nodeB)
+            if backtrack(idx + 1, mapping, usedB):
+                return True
+            usedB.remove(nodeB)
             del mapping[nodeA]
-            return False
+        return False
+    # Avvia il processo di mapping --------------------------------------
+    found = backtrack(0, {}, set())
+    if not found:
+        return False, {}, 0.0, {}
+    mapping = best_mapping
+    success = True          #  <<<  AGGIUNGI questa riga
 
-    # Se siamo arrivati qui, tutti i vicini di nodeA hanno trovato un partner
-    # e la ricorsione è andata a buon fine per tutti.
-    return True
+
+    if success:
+        if not _orientation_is_consistent(G_A, G_B, mapping):
+            return False, {}, 0.0, {}  # match specchiato, lo scartiamo
+
+    score, details = compute_complete_matching_score(
+    G_A, G_B, mapping, M3_A, M3_B, M_scavalcamenti_A, M_scavalcamenti_B,
+    cost_weight=1.0, angle_weight=2.0, edge_mode_weight=1.0,
+    max_ridge_diff=max_ridge_diff, cost_threshold_rel=cost_threshold_rel
+    )
+    return success, mapping, score, details
+

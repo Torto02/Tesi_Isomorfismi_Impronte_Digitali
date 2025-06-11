@@ -1,115 +1,238 @@
+
+"""
+Miglioramento delle funzioni di estrazione dei sottografi con rimozione dei
+risultati duplicati (stesso insieme di minuzie reali e stessi archi reali).
+
+Modifiche principali:
+    • Introduzione di un "canonical signature" che astrae dai nodi/archi
+      di servizio (type=='added').
+    • Post‑processing comune di deduplicazione per versione parallela e
+      sequenziale (_deduplicate).
+    • Piccole utility isolate (_is_added, _canonical_signature).
+
+Il resto dell’algoritmo è invariato, quindi l’API rimane compatibile.
+"""
+
+from __future__ import annotations
+
 import networkx as nx
+import numpy as np
+from multiprocessing import Pool, cpu_count
+from typing import Tuple, List, Set, FrozenSet, Dict
 
-def get_subgraph_within_radius(G, M3, source_node, radius):
+# ---------------------------------------------------------------------------
+#  UTILITY GENERICHE
+# ---------------------------------------------------------------------------
+
+def _is_added(G: nx.Graph, n: int) -> bool:
+    """Ritorna True se il nodo ha attributo type=='added'."""
+    return G.nodes[n].get("type") == "added"
+
+
+def _canonical_signature(
+    G: nx.Graph, node_set: Set[int]
+) -> Tuple[Tuple[int, ...], Tuple[Tuple[int, int], ...]]:
+    """Restituisce una firma hashable che ignora nodi/archi 'added'."""
+    # real_nodes: Tuple[int, ...] = tuple(sorted(n for n in node_set if not _is_added(G, n)))
     """
-    Ritorna il sottografo di G contenente i nodi che distano <= radius dal source_node
-    in base alla matrice M3 (che contiene le distanze euclidee).
-
-    Attenzione: Assicura che gli indici usati per M3 corrispondano all'ordine dei nodi in G.
-    Se G può avere nodi non sequenziali (es. dopo rimozioni), è necessaria una mappa indici <-> nodi.
-    Qui assumiamo che i nodi in G siano 0...N-1 e corrispondano agli indici di M3.
+    Restituisce una firma hashable che include tutti i nodi e tutti gli archi,
+    compresi quelli 'added', in modo da distinguere varianti diverse.
     """
-    N = G.number_of_nodes()
-    source_node_index = -1 
-
-    # Trova l'indice corretto per source_node in M3
-    if G.has_node(source_node):
-        try:
-            if source_node < N and list(G.nodes())[source_node] == source_node:
-                 source_node_index = source_node
-            else: 
-                 node_list = list(G.nodes())
-                 source_node_index = node_list.index(source_node)
-        except (ValueError, IndexError):
-             print(f"Errore: Impossibile trovare l'indice per source_node {source_node} nel grafo G.")
-             return G.subgraph([]).copy() 
-    else:
-        print(f"Errore: source_node {source_node} non esiste nel grafo G.")
-        return G.subgraph([]).copy() 
-
-    if source_node_index == -1 or not M3 or source_node_index >= len(M3):
-         print(f"Errore: M3 non valida o indice source_node {source_node_index} fuori dai limiti per M3.")
-         return G.subgraph([]).copy()
-
-    try:
-        row_distances = M3[source_node_index]
-        num_cols = len(row_distances)
-        sub_nodes_indices = [j for j in range(num_cols) if row_distances[j] <= radius]
-    except IndexError:
-         print(f"Errore: Indice source_node {source_node_index} fuori dai limiti per le righe di M3.")
-         return G.subgraph([]).copy()
+    # Tutti i nodi (inclusi added), ordinati
+    all_nodes: Tuple[int, ...] = tuple(sorted(node_set))
 
 
-    node_list = list(G.nodes()) 
-    sub_nodes = [node_list[j] for j in sub_nodes_indices if j < len(node_list)]
 
-    S = G.subgraph(sub_nodes).copy()
-    return S
+    # real_edges: Tuple[Tuple[int, int], ...] = tuple(
+    # Tutti gli archi (inclusi added), ordinati con endpoint in ordine
+    all_edges: Tuple[Tuple[int, int], ...] = tuple(
+        sorted(
+            # (
+            #     (u, v) if u < v else (v, u)
+            #     for u, v, d in G.subgraph(node_set).edges(data=True)
+            #     if d.get("type") != "added" and not _is_added(G, u) and not _is_added(G, v)
+            # )
+            (u, v) if u < v else (v, u)
+            for u, v, _ in G.subgraph(node_set).edges(data=True)
+        )
+    )
+
+    # return real_nodes, real_edges
+    return all_nodes, all_edges
+
+def _deduplicate(
+    G: nx.Graph, candidates: List[Tuple[Tuple[int, ...], nx.Graph]]
+) -> List[Tuple[Tuple[int, ...], nx.Graph]]:
+    """Elimina duplicati mantenendo il primo risultato con la stessa firma."""
+    seen: Dict[Tuple[Tuple[int, ...], Tuple[Tuple[int, int], ...]], Tuple[Tuple[int, ...], nx.Graph]] = {}
+    for nodes, sg in candidates:
+        sig = _canonical_signature(G, set(nodes))
+        if sig not in seen:
+            seen[sig] = (nodes, sg)
+    return list(seen.values())
+
+# ---------------------------------------------------------------------------
+#  INDICIZZAZIONE VELOCE NODO  <->  INDICE MATRICE M3 (invariata)
+# ---------------------------------------------------------------------------
+
+def _ensure_index_maps(G: nx.Graph):
+    if "_node2idx" in G.graph:
+        return G.graph["_node2idx"], G.graph["_idx2node"]
+
+    idx2node = list(G.nodes())
+    node2idx = {n: i for i, n in enumerate(idx2node)}
+    G.graph["_node2idx"] = node2idx
+    G.graph["_idx2node"] = idx2node
+    return node2idx, idx2node
+
+# ---------------------------------------------------------------------------
+#  SOTTOGRAFO ENTRO UN CERTO RAGGIO (invariata)
+# ---------------------------------------------------------------------------
+
+def get_subgraph_within_radius(G: nx.Graph, M3, source_node: int, radius: float):
+    node2idx, idx2node = _ensure_index_maps(G)
+    if source_node not in node2idx:
+        return G.subgraph([]).copy()
+    src_idx = node2idx[source_node]
+    if src_idx >= len(M3):
+        return G.subgraph([]).copy()
+    row = np.asarray(M3[src_idx], dtype=float)
+    sub_nodes_idx = np.nonzero(row <= radius)[0]
+    sub_nodes = [idx2node[i] for i in sub_nodes_idx]
+    return G.subgraph(sub_nodes).copy()
+
+# ---------------------------------------------------------------------------
+#  AIUTANTE: COSTRUISCI GRAFO "REALE" (invariato)
+# ---------------------------------------------------------------------------
+
+def build_S_real(S: nx.Graph) -> nx.Graph:
+    S_real = nx.Graph()
+    S_real.add_nodes_from(S.nodes())
+    for u, v, d in S.edges(data=True):
+        if d.get("type") != "added":
+            S_real.add_edge(u, v)
+    return S_real
+
+# ---------------------------------------------------------------------------
+#  WORKER PARALLELO (invariato salvo pulizia minima)
+# ---------------------------------------------------------------------------
+
+def _expand_worker(args):
+    start, S_nodes, S_edges, size = args
+
+    S = nx.Graph()
+    S.add_nodes_from(S_nodes)
+    # print(f"nodes: {S.nodes()}")
+    # print(f"edges: {S_edges}")
+    S.add_edges_from(S_edges)
 
 
-def get_connected_subgraphs_of_minutiae(S, size=6):
-    """
-    Genera tutti i sottografi connessi di S composti esclusivamente da 'size' minuzie 'vere',
-    escludendo dal calcolo della connettività gli archi di tipo 'added', usando un approccio
-    di espansione ricorsiva.
-    Ritorna una lista di tuple (tuple_di_nodi_ordinati, sottografo_indotto_da_S).
-    """
-    # Estrae i nodi minuzia da S
-    real_minutiae_nodes = {n for n, data in S.nodes(data=True)
-                           if data.get('type') in ('ending', 'bifurcation')}
+    def count_real(ns: Set[int]):
+        return sum(1 for x in ns if not _is_added(S, x))
 
-    if not real_minutiae_nodes:
+    results: Set[FrozenSet[int]] = set()
+
+    # def expand(curr: Set[int], cands: Set[int]):
+    #     r = count_real(curr)
+    #     if r == size:
+    #         results.add(frozenset(curr))
+    #         return
+    #     if r > size or not cands:
+    #         return
+    #     for n in list(cands):
+    #         if not _is_added(S, n) and r + 1 > size:
+    #             continue
+    #         new_curr = curr | {n}
+    #         rem = cands - {n}
+    #         new_nei = set(S.neighbors(n))
+    #         expand(new_curr, rem | (new_nei - new_curr))
+    def expand(curr: Set[int], cands: Set[int], added_edges_count: int = 0):
+        r = count_real(curr)
+        if r > size or added_edges_count > 1 or not cands:
+            return
+        # Se ho già enough real nodes, registro e torno
+        if r == size:
+            results.add(frozenset(curr))
+            return
+        for n in list(cands):
+            # evita overshoot di real nodes
+            if not _is_added(S, n) and r + 1 > size:
+                continue
+            # conto quanti archi 'added' introdurrei collegando n a curr
+            added_edges_between = sum(
+                1
+                for m in curr
+                if S.has_edge(m, n) and S.edges[m, n].get("type") == "added"
+            )
+            new_added = added_edges_count + added_edges_between
+            # permetto al massimo un arco 'added'
+            if new_added > 1:
+                continue
+            new_curr = curr | {n}
+            rem = cands - {n}
+            new_nei = set(S.neighbors(n))
+            expand(new_curr, rem | (new_nei - new_curr), new_added)
+
+
+    # print(f"Expanding from {start} with size {size}")
+    # print(f"Initial neighbors: {set(S.neighbors(start))}")
+    # expand({start}, set(S.neighbors(start)))
+    expand({start}, set(S.neighbors(start)), 0)
+    return results
+
+# ---------------------------------------------------------------------------
+#  FUNZIONE PARALLELA CON DEDUP
+# ---------------------------------------------------------------------------
+
+def get_connected_subgraphs_of_minutiae_parallel(
+    S: nx.Graph,
+    size: int = 6,
+    processes: int | None = None,
+    S_real: nx.Graph | None = None,
+):
+    if not S.nodes():
         return []
 
-    # Crea un grafo temporaneo contenente solo le minuzie e gli archi REALI
-    # Questo grafo serve per trovare i vicini durante l'espansione
-    S_minutiae_real_edges = nx.Graph()
-    S_minutiae_real_edges.add_nodes_from(real_minutiae_nodes)
-    for u, v, data in S.edges(data=True):
-        if u in real_minutiae_nodes and v in real_minutiae_nodes and data.get('type') != 'added':
-            S_minutiae_real_edges.add_edge(u, v)
+    if S_real is None:
+        S_real = build_S_real(S)
 
-    # Set per memorizzare i set di nodi trovati 
-    risultati_sets = set()
+    S_nodes = list(S.nodes(data=True))
+    # S_edges = [(u, v) for u, v, d in S.edges(data=True) if d.get("type") != "added"]
+    # Include all edges con i loro attributi, per poter utilizzare anche gli 'added'
+    S_edges = [(u, v, d.copy()) for u, v, d in S.edges(data=True)]
+    print(f"Starting parallel search for subgraphs of size {size}...")
+    print(f"Number of nodes in S: {len(S_nodes)}")
+    print(f"number of real edges in S: {sum(1 for u, v, d in S_edges if d.get('type') != 'added')}")
+    print(f"number of added edges in S: {sum(1 for u, v, d in S_edges if d.get('type') == 'added')}")
 
-    # Funzione ricorsiva per l'espansione
-    def expand(current_nodes_set, candidates_set):
-        # Condizione di terminazione: raggiunto la dimensione desiderata
-        if len(current_nodes_set) == size:
-            risultati_sets.add(frozenset(current_nodes_set))
-            return
-        if not candidates_set:
-             return
+    #!Dovremo permettere il passaggio anche degli archi added
 
-        # Prova ad aggiungere un candidato alla volta
-        for node_to_add in list(candidates_set):
-            new_current_set = current_nodes_set | {node_to_add}
+    all_nodes = list(S.nodes())
 
+    with Pool(processes=processes or cpu_count()) as pool:
+        raw_sets = pool.map(
+            _expand_worker, [(start, S_nodes, S_edges, size) for start in all_nodes]
+        )
 
-            remaining_candidates = candidates_set - {node_to_add}
-            # Trova i vicini reali del nodo aggiunto
-            neighbors_of_added = set(S_minutiae_real_edges.neighbors(node_to_add))
-            # Aggiungi solo i vicini che non sono già nel gruppo corrente
-            new_potential_candidates = neighbors_of_added - new_current_set
+    candidate_sets = set().union(*raw_sets)
 
-            # Unisci i candidati rimanenti con i nuovi potenziali candidati
-            next_candidates = remaining_candidates | new_potential_candidates
+    # ------------------  post‑processing  -----------------------------
+    final: List[Tuple[Tuple[int, ...], nx.Graph]] = []
+    for node_set in candidate_sets:
+        subG = S.subgraph(node_set).copy()
+        real_nodes = [n for n in node_set if not _is_added(S, n)]
+        to_remove = []
+        if len(real_nodes) >= 2:
+            for v in list(node_set):
+                if _is_added(S, v):
+                    Gm = subG.copy()
+                    Gm.remove_node(v)
+                    reachable = nx.node_connected_component(Gm, real_nodes[0])
+                    if set(real_nodes).issubset(reachable):
+                        to_remove.append(v)
+        kept = set(node_set) - set(to_remove)
+        if sum(1 for n in kept if not _is_added(S, n)) == size:
+            final.append((tuple(sorted(kept)), S.subgraph(kept).copy()))
 
-            # Chiamata ricorsiva
-            expand(new_current_set, next_candidates)
-
-
-    # Avvia l'espansione da ogni minuzia come punto di partenza
-    processed_starts = set() # Per ottimizzare se un nodo fa già parte di un risultato
-    for start_node in real_minutiae_nodes:
-         initial_candidates = set(S_minutiae_real_edges.neighbors(start_node))
-         expand({start_node}, initial_candidates)
-
-    final_subgraphs = []
-    for node_set in risultati_sets:
-        nodes_tuple_sorted = tuple(sorted(list(node_set)))
-        # Induci il sottografo finale da S originale per mantenere tutti gli attributi/archi
-        subgraph_induced = S.subgraph(node_set).copy()
-        final_subgraphs.append((nodes_tuple_sorted, subgraph_induced))
-
-    return final_subgraphs
+    # deduplica vera e propria (stessa firma)
+    return _deduplicate(S, final)
