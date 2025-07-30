@@ -7,7 +7,7 @@ import datetime
 from graph_processing import load_fingerprint_and_compute
 from subgraph_operations import get_subgraph_within_radius, get_connected_subgraphs_of_minutiae_parallel
 from matching import match_subgraph
-from plotting import plot_and_save_subgraph, plot_mapping, plot_final_graphs,plot_match_with_context
+from plotting import plot_and_save_subgraph, plot_mapping, plot_final_graphs, plot_match_with_context, plot_chirality_check
 import time
 
 # --- Definisci qui le costanti per i percorsi ---
@@ -25,7 +25,8 @@ MINUTIAE_SUBGRAPH_SIZE = 6 # Dimensione dei sotto-sottografi di minuzie da cerca
 MIN_MATCH_NODES = 6       # Numero minimo di nodi matchati per considerare un match valido (>=4)
 MATCHING_COST_THRESHOLD_REL = 0.3 # Soglia differenza relativa per M1 cost (0.6 = 60% di tolleranza)
 MATCHING_MAX_RIDGE_DIFF = 1     # Soglia differenza assoluta per M_scavalcamenti
-MATCHING_ANGLE_TOLERANCE_DEGREES = 28 # Soglia tolleranza angolare in gradi (es. +/- 35 gradi)
+MATCHING_ANGLE_TOLERANCE_DEGREES = 30 # Soglia tolleranza angolare in gradi (es. +/- 35 gradi)
+MATCHING_MAX_EDGE_LENGTH_RATIO = 3.0  # Rapporto massimo tra lunghezze archi corrispondenti
 
 def find_max_finite_distance(matrix):
     """Trova il massimo valore finito in una matrice di distanze (usato per M3)."""
@@ -272,7 +273,7 @@ def main():
         )
         return
 
-    print(f"\n--- Esecuzione Matching (M1 Rel={MATCHING_COST_THRESHOLD_REL}, Scaval Abs={MATCHING_MAX_RIDGE_DIFF}, Ang Tol={MATCHING_ANGLE_TOLERANCE_DEGREES}) ---")
+    print(f"\n--- Esecuzione Matching (M1 Rel={MATCHING_COST_THRESHOLD_REL}, Scaval Abs={MATCHING_MAX_RIDGE_DIFF}, Ang Tol={MATCHING_ANGLE_TOLERANCE_DEGREES}, Edge Ratio={MATCHING_MAX_EDGE_LENGTH_RATIO}) ---")
     match_counter = 0
     all_matches = []
     matched_nodes_A_global = set()
@@ -289,7 +290,7 @@ def main():
     print(f"Nodi totali coinvolti in match validi in B: {len(matched_nodes_B_global)}")
     # In main_script.py, sostituisci il ciclo di matching esistente con questo:
 
-    print(f"\n--- Esecuzione Matching (M1 Rel={MATCHING_COST_THRESHOLD_REL}, Scaval Abs={MATCHING_MAX_RIDGE_DIFF}, Ang Tol={MATCHING_ANGLE_TOLERANCE_DEGREES}) ---")
+    print(f"\n--- Esecuzione Matching (M1 Rel={MATCHING_COST_THRESHOLD_REL}, Scaval Abs={MATCHING_MAX_RIDGE_DIFF}, Ang Tol={MATCHING_ANGLE_TOLERANCE_DEGREES}, Edge Ratio={MATCHING_MAX_EDGE_LENGTH_RATIO}) ---")
     match_counter = 0
     all_matches = []
     matched_nodes_A_global = set()
@@ -310,7 +311,8 @@ def main():
                 M_scavalcamenti_A, M_scavalcamenti_B,
                 cost_threshold_rel=MATCHING_COST_THRESHOLD_REL,
                 max_ridge_diff=MATCHING_MAX_RIDGE_DIFF,
-                angle_tolerance_degrees=MATCHING_ANGLE_TOLERANCE_DEGREES
+                angle_tolerance_degrees=MATCHING_ANGLE_TOLERANCE_DEGREES,
+                max_edge_length_ratio=MATCHING_MAX_EDGE_LENGTH_RATIO
             )
 
             checked_count += 1
@@ -389,6 +391,17 @@ def main():
             f"match_{match['id']}_WITH_CONTEXT.png",
             score=match["score"]
         )
+        
+        # Nuovo plot per chirality check
+        consistent_triplets, total_triplets = plot_chirality_check(
+            match['subG_A'], match['subG_B'],
+            match['mapping'],
+            OUTPUT_FOLDER_SUBGRAPHS,
+            f"match_{match['id']}_CHIRALITY_CHECK.png",
+            score=match['score']
+        )
+        
+        print(f"  Match #{match['id']} - Chirality: {consistent_triplets}/{total_triplets} triplets consistent")
 
 
     # --- Stampa Finale dei Grafi Completi con Evidenziazione ---

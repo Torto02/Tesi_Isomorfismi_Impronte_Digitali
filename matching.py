@@ -96,31 +96,101 @@ def _orientation(p, q, r):
     """Restituisce il prodotto vettoriale orientato: >0 antiorario, <0 orario."""
     return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
 
-def _orientation_is_consistent(G_A, G_B, mapping):
-    """Controlla che il segno del prodotto vettoriale tra triplette di nodi mappati sia consistente."""
+def _check_edge_length_ratios(G_A, G_B, mapping, M3_A, M3_B, max_ratio=3.0):
+    """
+    Verifica che i rapporti tra le lunghezze degli archi corrispondenti 
+    siano compresi tra 1/max_ratio e max_ratio.
+    """
+    node2idx_A = G_A.graph.get("_node2idx", {})
+    node2idx_B = G_B.graph.get("_node2idx", {})
+    
+    for nodeA1, nodeB1 in mapping.items():
+        for nodeA2, nodeB2 in mapping.items():
+            if nodeA1 >= nodeA2:  # Evita duplicati
+                continue
+                
+            # Ottieni le distanze euclidee da M3
+            try:
+                idx_A1 = node2idx_A.get(nodeA1)
+                idx_A2 = node2idx_A.get(nodeA2)
+                idx_B1 = node2idx_B.get(nodeB1)
+                idx_B2 = node2idx_B.get(nodeB2)
+                
+                if any(idx is None for idx in [idx_A1, idx_A2, idx_B1, idx_B2]):
+                    continue
+                    
+                dist_A = M3_A[idx_A1][idx_A2]
+                dist_B = M3_B[idx_B1][idx_B2]
+                
+                if dist_A == float('inf') or dist_B == float('inf') or dist_A <= 0 or dist_B <= 0:
+                    continue
+                    
+                ratio = max(dist_A, dist_B) / min(dist_A, dist_B)
+                if ratio > max_ratio:
+                    return False
+                    
+            except (IndexError, TypeError, ValueError):
+                continue
+                
+    return True
+
+def _enhanced_chirality_check(G_A, G_B, mapping):
+    """
+    Versione più tollerante del controllo chirale. Permette fino al 20% di triplette
+    con orientamento non coerente per accettare il match.
+    """
+    total_triplets = 0
+    consistent_triplets = 0
+    
     for nodeA, nodeB in mapping.items():
         neighborsA = get_real_neighbors_via_added(G_A, nodeA)
-        for i in range(len(neighborsA)):
-            for j in range(i+1, len(neighborsA)):
-                a1, a2 = neighborsA[i], neighborsA[j]
-                if a1 not in mapping or a2 not in mapping:
+        mapped_neighbors_A = [n for n in neighborsA if n in mapping]
+        
+        # Serve almeno una coppia di vicini per fare il test chirale
+        if len(mapped_neighbors_A) < 2:
+            continue
+            
+        # Testa tutte le combinazioni di triplette (nodeA è il nodo centrale)
+        for i in range(len(mapped_neighbors_A)):
+            for j in range(i+1, len(mapped_neighbors_A)):
+                total_triplets += 1
+                n1A = mapped_neighbors_A[i]
+                n2A = mapped_neighbors_A[j]
+                
+                n1B = mapping[n1A]
+                n2B = mapping[n2A]
+                
+                posA = G_A.nodes[nodeA].get('pos')
+                posN1A = G_A.nodes[n1A].get('pos')
+                posN2A = G_A.nodes[n2A].get('pos')
+                
+                posB = G_B.nodes[nodeB].get('pos')
+                posN1B = G_B.nodes[n1B].get('pos')
+                posN2B = G_B.nodes[n2B].get('pos')
+                
+                # Se mancano coordinate, salta
+                if not all([posA, posN1A, posN2A, posB, posN1B, posN2B]):
                     continue
-                b1 = mapping[a1]
-                b2 = mapping[a2]
-                try:
-                    orientA = _orientation(G_A.nodes[nodeA]["pos"],
-                                           G_A.nodes[a1]["pos"],
-                                           G_A.nodes[a2]["pos"])
-                    orientB = _orientation(G_B.nodes[nodeB]["pos"],
-                                           G_B.nodes[b1]["pos"],
-                                           G_B.nodes[b2]["pos"])
-                except KeyError:
-                    continue
-                if abs(orientA) < 1e-6 or abs(orientB) < 1e-6:
-                    continue
-                if orientA * orientB < 0:
-                    return False
-    return True
+                    
+                # Calcola l'orientamento
+                orient_A = _orientation(posA, posN1A, posN2A)
+                orient_B = _orientation(posB, posN1B, posN2B)
+                
+                # Se hanno lo stesso segno, sono coerenti
+                if (orient_A > 0 and orient_B > 0) or (orient_A < 0 and orient_B < 0):
+                    consistent_triplets += 1
+    
+    # Se non ci sono triplette da verificare, accetta il match
+    if total_triplets == 0:
+        return True
+        
+    # Accetta il match se almeno l'80% delle triplette è coerente
+    consistency_ratio = consistent_triplets / total_triplets
+    return consistency_ratio >= 0.8  # Tolleranza del 20%
+
+def _orientation_is_consistent(G_A, G_B, mapping):
+    """Usa la versione migliorata del controllo chirale."""
+    return _enhanced_chirality_check(G_A, G_B, mapping)
 
 # ------------------------------------------------------------------
 # FILTRI E HEURISTICHE ---------------------------------------------
@@ -250,118 +320,136 @@ def check_node_compatibility(G_A, G_B, nodeA, nodeB):
     typeB = G_B.nodes[nodeB].get('type')
     return typeA == typeB
 
-def compute_complete_matching_score(G_A, G_B, mapping, M3_A, M3_B, M_scavalcamenti_A, M_scavalcamenti_B, 
-                                   cost_weight=1.0, ridge_weight=1.0, angle_weight=1.0, edge_mode_weight=1.0,
-                                   max_ridge_diff=1, cost_threshold_rel=0.5):
-    """Calcola score complessivo del match."""
-    nodes_A = list(mapping.keys())
-    total_pairs = 0
-    total_score = 0
-    pair_details = {}
+# def compute_complete_matching_score(G_A, G_B, mapping, M3_A, M3_B, M_scavalcamenti_A, M_scavalcamenti_B, 
+#                                    cost_weight=1.0, ridge_weight=1.0, angle_weight=1.0, edge_mode_weight=1.0,
+#                                    max_ridge_diff=1, cost_threshold_rel=0.5):
+#     """Calcola score complessivo del match."""
+#     nodes_A = list(mapping.keys())
+#     total_pairs = 0
+#     total_score = 0
+#     pair_details = {}
 
-    sum_weights = cost_weight + ridge_weight + angle_weight + edge_mode_weight
-    cost_w   = cost_weight        / sum_weights
-    angle_w  = angle_weight       / sum_weights
-    edge_w   = edge_mode_weight   / sum_weights
+#     # Usiamo solo i pesi positivi per il calcolo finale
+#     sum_weights = cost_weight + angle_weight + edge_mode_weight
+#     cost_w   = cost_weight      / sum_weights
+#     angle_w  = angle_weight     / sum_weights
+#     edge_w   = edge_mode_weight / sum_weights
 
-    # Calcolo delle distanze medie per il controllo della soglia
-    total_cost_A = 0
-    total_cost_B = 0
+#     # Calcolo delle distanze medie per il controllo della soglia
+#     total_cost_A = 0
+#     total_cost_B = 0
 
-    for i in range(len(nodes_A)):
-        nodeA1 = nodes_A[i]
-        nodeB1 = mapping[nodeA1]
+#     for i in range(len(nodes_A)):
+#         nodeA1 = nodes_A[i]
+#         nodeB1 = mapping[nodeA1]
 
-        for j in range(i+1, len(nodes_A)):
-            nodeA2 = nodes_A[j]
-            nodeB2 = mapping[nodeA2]
+#         for j in range(i+1, len(nodes_A)):
+#             nodeA2 = nodes_A[j]
+#             nodeB2 = mapping[nodeA2]
 
-            pair_id = (nodeA1, nodeA2)
-            pair_details[pair_id] = {}
+#             pair_id = (nodeA1, nodeA2)
+#             pair_details[pair_id] = {}
 
-            # 1. Controllo sugli scavalcamenti (jump di added)
-            try:
-                scA = float(M_scavalcamenti_A[nodeA1][nodeA2])
-                scB = float(M_scavalcamenti_B[nodeB1][nodeB2])
-                if abs(scA - scB) > max_ridge_diff:
-                    return 0.0, {}  # Scartiamo il match
-            except (IndexError, TypeError, ValueError):
-                return 0.0, {}  # Scartiamo il match in caso di errore
+#             # 1. Controllo sugli scavalcamenti (jump di added)
+#             try:
+#                 scA = float(M_scavalcamenti_A[nodeA1][nodeA2])
+#                 scB = float(M_scavalcamenti_B[nodeB1][nodeB2])
+#                 if abs(scA - scB) > max_ridge_diff:
+#                     return 0.0, {}  # Scartiamo il match
+#             except (IndexError, TypeError, ValueError):
+#                 return 0.0, {}  # Scartiamo il match in caso di errore
 
-            # 2. Controllo sulle distanze
-            try:
-                costA = float(M3_A[nodeA1][nodeA2])
-                costB = float(M3_B[nodeB1][nodeB2])
-                total_cost_A += costA
-                total_cost_B += costB
-                if costA == float('inf') and costB == float('inf'):
-                    cost_score = 1.0
-                elif costA == float('inf') or costB == float('inf'):
-                    cost_score = 0.0
-                else:
-                    max_cost = max(0.0001, max(costA, costB))
-                    cost_diff = abs(costA - costB)
-                    cost_score = max(0.0, 1.0 - (cost_diff / max_cost))
-                pair_details[pair_id]['cost_score'] = cost_score
-                pair_details[pair_id]['cost_A'] = costA
-                pair_details[pair_id]['cost_B'] = costB
-            except (IndexError, TypeError, ValueError):
-                cost_score = 0.5
-                pair_details[pair_id]['cost_score'] = cost_score
-                pair_details[pair_id]['error'] = "cost_calc_error"
+#             # 2. Controllo sulle distanze
+#             try:
+#                 costA = float(M3_A[nodeA1][nodeA2])
+#                 costB = float(M3_B[nodeB1][nodeB2])
+#                 total_cost_A += costA
+#                 total_cost_B += costB
+#                 if costA == float('inf') and costB == float('inf'):
+#                     cost_score = 1.0
+#                 elif costA == float('inf') or costB == float('inf'):
+#                     cost_score = 0.0
+#                 else:
+#                     max_cost = max(0.0001, max(costA, costB))
+#                     min_cost = min(costA, costB)
+#                     cost_diff = abs(costA - costB)
+                    
+#                     # Miglioramento: se i costi sono molto simili (differenza < 1% del massimo),
+#                     # assegniamo un punteggio perfetto
+#                     if cost_diff < 0.01 * max_cost:
+#                         cost_score = 1.0
+#                     # Miglioramento: usiamo una formula più generosa per il punteggio
+#                     # che dà più peso alle piccole differenze relative
+#                     else:
+#                         ratio = min_cost / max_cost if max_cost > 0 else 0
+#                         cost_score = max(0.0, 0.5 * ratio + 0.5 * (1.0 - (cost_diff / max_cost)))
+                
+#                 pair_details[pair_id]['cost_score'] = cost_score
+#                 pair_details[pair_id]['cost_A'] = costA
+#                 pair_details[pair_id]['cost_B'] = costB
+#             except (IndexError, TypeError, ValueError):
+#                 cost_score = 0.5
+#                 pair_details[pair_id]['cost_score'] = cost_score
+#                 pair_details[pair_id]['error'] = "cost_calc_error"
 
-            # 3. Controllo sugli angoli
-            try:
-                posA1 = G_A.nodes[nodeA1]['pos']
-                posA2 = G_A.nodes[nodeA2]['pos']
-                posB1 = G_B.nodes[nodeB1]['pos']
-                posB2 = G_B.nodes[nodeB2]['pos']
-                angA = calculate_angle(posA1, posA2)
-                angB = calculate_angle(posB1, posB2)
-                ang_diff = min(abs(angA - angB), 360.0 - abs(angA - angB))
-                if ang_diff > cost_threshold_rel * 180:  # Controllo soglia angoli
-                    return 0.0, {}  # Scartiamo il match
-                angle_score = max(0.0, 1.0 - (ang_diff / 180.0))
-                pair_details[pair_id]['angle_score'] = angle_score
-                pair_details[pair_id]['angle_A'] = angA
-                pair_details[pair_id]['angle_B'] = angB
-                pair_details[pair_id]['angle_diff'] = ang_diff
-            except (KeyError, TypeError, ValueError):
-                angle_score = 0.5
-                pair_details[pair_id]['angle_score'] = angle_score
-                pair_details[pair_id]['error'] = "angle_calc_error"
+#             # 3. Controllo sugli angoli
+#             try:
+#                 posA1 = G_A.nodes[nodeA1]['pos']
+#                 posA2 = G_A.nodes[nodeA2]['pos']
+#                 posB1 = G_B.nodes[nodeB1]['pos']
+#                 posB2 = G_B.nodes[nodeB2]['pos']
+#                 angA = calculate_angle(posA1, posA2)
+#                 angB = calculate_angle(posB1, posB2)
+#                 ang_diff = min(abs(angA - angB), 360.0 - abs(angA - angB))
+#                 if ang_diff > cost_threshold_rel * 180:  # Controllo soglia angoli
+#                     return 0.0, {}  # Scartiamo il match
+#                 # Formula migliorata per il punteggio degli angoli:
+#                 # Angoli quasi identici (diff < 5°) ricevono punteggio perfetto
+#                 if ang_diff < 5.0:
+#                     angle_score = 1.0
+#                 else:
+#                     angle_score = max(0.0, 1.0 - (ang_diff / 180.0))
+#                 pair_details[pair_id]['angle_score'] = angle_score
+#                 pair_details[pair_id]['angle_A'] = angA
+#                 pair_details[pair_id]['angle_B'] = angB
+#                 pair_details[pair_id]['angle_diff'] = ang_diff
+#             except (KeyError, TypeError, ValueError):
+#                 angle_score = 0.5
+#                 pair_details[pair_id]['angle_score'] = angle_score
+#                 pair_details[pair_id]['error'] = "angle_calc_error"
 
-            # 4. Penalità collegamento diretto vs via added
-            directA = is_direct_edge(G_A, nodeA1, nodeA2)
-            directB = is_direct_edge(G_B, nodeB1, nodeB2)
-            if directA == directB:
-                edge_mode_score = 0.4  # contribuisce 0 se la modalità è coerente (nessun premio)
-            else:
-                edge_mode_score = -0.01  # penalità piena in caso di mismatch
-            pair_details[pair_id]['edge_mode_score'] = edge_mode_score
+#             # 4. Score per la coerenza del tipo di collegamento (diretto vs via added)
+#             directA = is_direct_edge(G_A, nodeA1, nodeA2)
+#             directB = is_direct_edge(G_B, nodeB1, nodeB2)
+#             if directA == directB:
+#                 edge_mode_score = 1.0  # punteggio pieno se la modalità è coerente
+#             else:
+#                 edge_mode_score = 0.0  # nessun punteggio in caso di mismatch
+#             pair_details[pair_id]['edge_mode_score'] = edge_mode_score
 
-            pair_score = (
-                cost_w * cost_score +
-                angle_w * angle_score +
-                edge_w * edge_mode_score
-            )
-            pair_details[pair_id]['total_score'] = pair_score
+#             pair_score = (
+#                 cost_w * cost_score +
+#                 angle_w * angle_score +
+#                 edge_w * edge_mode_score
+#             )
+#             pair_details[pair_id]['total_score'] = pair_score
 
-            total_score += pair_score
-            total_pairs += 1
+#             total_score += pair_score
+#             total_pairs += 1
 
-    # Controllo soglia sulle distanze medie
-    avg_cost_A = total_cost_A / total_pairs if total_pairs > 0 else float('inf')
-    avg_cost_B = total_cost_B / total_pairs if total_pairs > 0 else float('inf')
-    if abs(avg_cost_A - avg_cost_B) > cost_threshold_rel * avg_cost_A:
-        return 0.0, {}  # Scartiamo il match
+#     # Controllo soglia sulle distanze medie
+#     avg_cost_A = total_cost_A / total_pairs if total_pairs > 0 else float('inf')
+#     avg_cost_B = total_cost_B / total_pairs if total_pairs > 0 else float('inf')
+#     if abs(avg_cost_A - avg_cost_B) > cost_threshold_rel * avg_cost_A:
+#         return 0.0, {}  # Scartiamo il match
 
-    final_score = total_score / total_pairs if total_pairs > 0 else 0
-    return final_score, pair_details
+#     final_score = total_score / total_pairs if total_pairs > 0 else 0
+#     return final_score, pair_details
 
 
 def match_subgraph(G_A, G_B, M3_A, M3_B, M_scavalcamenti_A, M_scavalcamenti_B, 
-                  cost_threshold_rel=0.5, max_ridge_diff=1, angle_tolerance_degrees=30):
+                  cost_threshold_rel=0.5, max_ridge_diff=1, angle_tolerance_degrees=30,
+                  max_edge_length_ratio=3.0):
     """Verifica se due sottografi sono match compatibili."""
    
     # ----------  PRE-FILTRI RAPIDI  --------------------------------
@@ -423,17 +511,210 @@ def match_subgraph(G_A, G_B, M3_A, M3_B, M_scavalcamenti_A, M_scavalcamenti_B,
     if not found:
         return False, {}, 0.0, {}
     mapping = best_mapping
-    success = True          #  <<<  AGGIUNGI questa riga
-
+    success = True
 
     if success:
+        # Controllo chiralità migliorato
         if not _orientation_is_consistent(G_A, G_B, mapping):
-            return False, {}, 0.0, {}  # match specchiato, lo scartiamo
+            return False, {}, 0.0, {}
+            
+        # Nuovo controllo sui rapporti delle lunghezze degli archi
+        if not _check_edge_length_ratios(G_A, G_B, mapping, M3_A, M3_B, max_edge_length_ratio):
+            return False, {}, 0.0, {}
 
     score, details = compute_complete_matching_score(
-    G_A, G_B, mapping, M3_A, M3_B, M_scavalcamenti_A, M_scavalcamenti_B,
-    cost_weight=1.0, angle_weight=2.0, edge_mode_weight=1.0,
-    max_ridge_diff=max_ridge_diff, cost_threshold_rel=cost_threshold_rel
+        G_A, G_B, mapping, M3_A, M3_B, M_scavalcamenti_A, M_scavalcamenti_B,
+        cost_weight=1.0, angle_weight=2.0, edge_mode_weight=1.0,
+        max_ridge_diff=max_ridge_diff, angle_tolerance_degrees=angle_tolerance_degrees
     )
     return success, mapping, score, details
+
+
+
+def compute_complete_matching_score(G_A, G_B, mapping, M3_A, M3_B, M_scavalcamenti_A, M_scavalcamenti_B, 
+                                   cost_weight=1.0, ridge_weight=1.0, angle_weight=1.0, edge_mode_weight=1.0,
+                                   max_ridge_diff=1, angle_tolerance_degrees=30):
+    """Calcola score complessivo del match."""
+    nodes_A = list(mapping.keys())
+    total_pairs = 0
+    total_score = 0
+    pair_details = {}
+
+    # Usiamo solo i pesi positivi per il calcolo finale
+    sum_weights = cost_weight + angle_weight + edge_mode_weight
+    cost_w   = cost_weight      / sum_weights
+    angle_w  = angle_weight     / sum_weights
+    edge_w   = edge_mode_weight / sum_weights
+
+    # Rimosso il calcolo delle distanze medie per il controllo della soglia
+    # total_cost_A = 0
+    # total_cost_B = 0
+
+    for i in range(len(nodes_A)):
+        nodeA1 = nodes_A[i]
+        nodeB1 = mapping[nodeA1]
+
+        for j in range(i+1, len(nodes_A)):
+            nodeA2 = nodes_A[j]
+            nodeB2 = mapping[nodeA2]
+
+            pair_id = (nodeA1, nodeA2)
+            pair_details[pair_id] = {}
+
+            # 1. Controllo sugli scavalcamenti (jump di added)
+            try:
+                scA = float(M_scavalcamenti_A[nodeA1][nodeA2])
+                scB = float(M_scavalcamenti_B[nodeB1][nodeB2])
+                if abs(scA - scB) > max_ridge_diff:
+                    return 0.0, {}  # Scartiamo il match
+            except (IndexError, TypeError, ValueError):
+                return 0.0, {}  # Scartiamo il match in caso di errore
+
+            # 2. Controllo sulle distanze - senza soglia cost_threshold_rel
+            try:
+                costA = float(M3_A[nodeA1][nodeA2])
+                costB = float(M3_B[nodeB1][nodeB2])
+                # Rimossa l'accumulazione per la media
+                # total_cost_A += costA
+                # total_cost_B += costB
+                
+                if costA == float('inf') and costB == float('inf'):
+                    cost_score = 1.0
+                elif costA == float('inf') or costB == float('inf'):
+                    cost_score = 0.0
+                else:
+                    max_cost = max(0.0001, max(costA, costB))
+                    min_cost = min(costA, costB)
+                    cost_diff = abs(costA - costB)
+                    
+                    # Miglioramento: se i costi sono molto simili (differenza < 1% del massimo),
+                    # assegniamo un punteggio perfetto
+                    if cost_diff < 0.01 * max_cost:
+                        cost_score = 1.0
+                    # Miglioramento: usiamo una formula più generosa per il punteggio
+                    # che dà più peso alle piccole differenze relative
+                    else:
+                        ratio = min_cost / max_cost if max_cost > 0 else 0
+                        cost_score = max(0.0, 0.5 * ratio + 0.5 * (1.0 - (cost_diff / max_cost)))
+                
+                pair_details[pair_id]['cost_score'] = cost_score
+                pair_details[pair_id]['cost_A'] = costA
+                pair_details[pair_id]['cost_B'] = costB
+            except (IndexError, TypeError, ValueError):
+                cost_score = 0.5
+                pair_details[pair_id]['cost_score'] = cost_score
+                pair_details[pair_id]['error'] = "cost_calc_error"
+
+            # 3. Controllo sugli angoli - ancora con controllo di tolleranza ma usando angle_tolerance_degrees
+            try:
+                posA1 = G_A.nodes[nodeA1]['pos']
+                posA2 = G_A.nodes[nodeA2]['pos']
+                posB1 = G_B.nodes[nodeB1]['pos']
+                posB2 = G_B.nodes[nodeB2]['pos']
+                angA = calculate_angle(posA1, posA2)
+                angB = calculate_angle(posB1, posB2)
+                ang_diff = min(abs(angA - angB), 360.0 - abs(angA - angB))
+                
+                # Utilizziamo angle_tolerance_degrees invece di cost_threshold_rel * 180
+                if ang_diff > angle_tolerance_degrees:
+                    return 0.0, {}  # Scartiamo il match
+                    
+                # Formula migliorata per il punteggio degli angoli:
+                # Angoli quasi identici (diff < 5°) ricevono punteggio perfetto
+                if ang_diff < 5.0:
+                    angle_score = 1.0
+                else:
+                    angle_score = max(0.0, 1.0 - (ang_diff / 180.0))
+                pair_details[pair_id]['angle_score'] = angle_score
+                pair_details[pair_id]['angle_A'] = angA
+                pair_details[pair_id]['angle_B'] = angB
+                pair_details[pair_id]['angle_diff'] = ang_diff
+            except (KeyError, TypeError, ValueError):
+                angle_score = 0.5
+                pair_details[pair_id]['angle_score'] = angle_score
+                pair_details[pair_id]['error'] = "angle_calc_error"
+
+            # 4. Score per la coerenza del tipo di collegamento (diretto vs via added)
+            directA = is_direct_edge(G_A, nodeA1, nodeA2)
+            directB = is_direct_edge(G_B, nodeB1, nodeB2)
+            if directA == directB:
+                edge_mode_score = 1.0  # punteggio pieno se la modalità è coerente
+            else:
+                edge_mode_score = 0.0  # nessun punteggio in caso di mismatch
+            pair_details[pair_id]['edge_mode_score'] = edge_mode_score
+
+            pair_score = (
+                cost_w * cost_score +
+                angle_w * angle_score +
+                edge_w * edge_mode_score
+            )
+            pair_details[pair_id]['total_score'] = pair_score
+
+            total_score += pair_score
+            total_pairs += 1
+
+    # Rimosso il controllo soglia sulle distanze medie
+    # avg_cost_A = total_cost_A / total_pairs if total_pairs > 0 else float('inf')
+    # avg_cost_B = total_cost_B / total_pairs if total_pairs > 0 else float('inf')
+    # if abs(avg_cost_A - avg_cost_B) > cost_threshold_rel * avg_cost_A:
+    #     return 0.0, {}  # Scartiamo il match
+
+    final_score = total_score / total_pairs if total_pairs > 0 else 0
+    return final_score, pair_details
+
+
+
+
+
+
+
+def get_chirality_details(G_A, G_B, mapping):
+    """
+    Restituisce informazioni dettagliate sui controlli di chiralità.
+    Utile per debugging e analisi approfondita.
+    """
+    chirality_details = []
+    
+    for nodeA, nodeB in mapping.items():
+        neighborsA = get_real_neighbors_via_added(G_A, nodeA)
+        mapped_neighbors_A = [n for n in neighborsA if n in mapping]
+        
+        if len(mapped_neighbors_A) < 2:
+            continue
+            
+        for i in range(len(mapped_neighbors_A)):
+            for j in range(i+1, len(mapped_neighbors_A)):
+                nodeA1, nodeA2 = mapped_neighbors_A[i], mapped_neighbors_A[j]
+                nodeB1, nodeB2 = mapping[nodeA1], mapping[nodeA2]
+                
+                try:
+                    posA = G_A.nodes[nodeA]["pos"]
+                    posA1 = G_A.nodes[nodeA1]["pos"]
+                    posA2 = G_A.nodes[nodeA2]["pos"]
+                    cross_A = _orientation(posA, posA1, posA2)
+                    
+                    posB = G_B.nodes[nodeB]["pos"]
+                    posB1 = G_B.nodes[nodeB1]["pos"]
+                    posB2 = G_B.nodes[nodeB2]["pos"]
+                    cross_B = _orientation(posB, posB1, posB2)
+                    
+                    if abs(cross_A) < 1e-6 or abs(cross_B) < 1e-6:
+                        continue
+                        
+                    is_consistent = cross_A * cross_B > 0
+                    
+                    chirality_details.append({
+                        'triplet_A': (nodeA, nodeA1, nodeA2),
+                        'triplet_B': (nodeB, nodeB1, nodeB2),
+                        'cross_product_A': cross_A,
+                        'cross_product_B': cross_B,
+                        'consistent': is_consistent,
+                        'orientation_A': 'CCW' if cross_A > 0 else 'CW',
+                        'orientation_B': 'CCW' if cross_B > 0 else 'CW'
+                    })
+                    
+                except KeyError:
+                    continue
+                    
+    return chirality_details
 
