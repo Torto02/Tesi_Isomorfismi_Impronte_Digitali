@@ -1,3 +1,5 @@
+
+
 #!/usr/bin/env python3
 import os
 import math
@@ -25,9 +27,15 @@ from plotting import (
 from stats_logger import StatsLogger
 
 # --- Costanti globali ---
-BASE_FOLDER_IMPRONTE           = "/Users/riccardotortorelli/Desktop/Tesi/Archivio/"
-OUTPUT_FOLDER_MATRICES         = "/Users/riccardotortorelli/Desktop/Tesi/OutputMatrices"
-CACHE_FOLDER                   = "/Users/riccardotortorelli/Desktop/Tesi/FingerPrintCache"
+#BASE_FOLDER_IMPRONTE           = "/Users/riccardotortorelli/Desktop/Tesi/Archivio/"
+#OUTPUT_FOLDER_MATRICES         = "/Users/riccardotortorelli/Desktop/Tesi/OutputMatrices"
+#CACHE_FOLDER                   = "/Users/riccardotortorelli/Desktop/Tesi/FingerPrintCache"
+
+
+BASE_FOLDER_IMPRONTE = os.path.join(os.getcwd(), "Archivio")
+OUTPUT_FOLDER_MATRICES = os.path.join(os.getcwd(), "OutputMatrices")
+CACHE_FOLDER = os.path.join(os.getcwd(), "FingerPrintCache")
+
 
 RADIUS_PERCENTAGE_A            = 0.1
 RADIUS_PERCENTAGE_B            = 0.1
@@ -329,6 +337,8 @@ def main():
     valid.sort(key=lambda x: x[3], reverse=True)
     print(f"Trovati {len(valid)} match validi:")
 
+    # ...existing code...
+
     def calculate_relation(idA, idB):
         """
         Calcola la relazione di parentela tra due impronte basandosi sul loro codice.
@@ -397,6 +407,9 @@ def main():
                     "subgraphB_nodes": list(subG_B.nodes)
                 }
             )
+
+    # ...existing code...
+
 
     # for rank, (i, j, mapping, score) in enumerate(valid, start=1):
     #     print(f"{rank}. A#{i} vs B#{j} → score {score:.4f}")

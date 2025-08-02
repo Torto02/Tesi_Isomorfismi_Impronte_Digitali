@@ -2,14 +2,24 @@ import os
 import subprocess
 
 # Path to the main script
-main_script_path = "/Users/riccardotortorelli/Desktop/Tesi/main_script.py"
+#main_script_path = "/Users/riccardotortorelli/Desktop/Tesi/main_script.py"
 
 # Base folder for fingerprints
-base_folder_impronte = "/Users/riccardotortorelli/Desktop/Tesi/Archivio/"
+#base_folder_impronte = "/Users/riccardotortorelli/Desktop/Tesi/Archivio/"
 
 # Output folder for all comparisons
-output_folder = "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons"
+#output_folder = "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons"
+#os.makedirs(output_folder, exist_ok=True)
+
+main_script_path = os.path.join(os.getcwd(), "main_script.py")
+
+# Cartella base contenente le impronte
+base_folder_impronte = os.path.join(os.getcwd(), "Archivio")
+
+# Cartella di output per tutti i confronti
+output_folder = os.path.join(os.getcwd(), "All_comparisons")
 os.makedirs(output_folder, exist_ok=True)
+
 
 # Get all fingerprint folders
 fingerprints = sorted([
@@ -17,13 +27,15 @@ fingerprints = sorted([
     if os.path.isdir(os.path.join(base_folder_impronte, d)) and not d.startswith('.')
 ])
 
+
+
 if len(fingerprints) < 2:
     print("At least two fingerprint folders are required.")
     exit(1)
 
 # Loop through all other fingerprints using only the first one as A
 fingerprintA = fingerprints[0]
-for idxA in [18,19,22,23,24,25,26,27,28,29,30,31,32,33,34,35]:  # Esegui il ciclo per idxA = 1 e idxA = 2
+for idxA in [38,40,41,42,43]:  # Esegui il ciclo per idxA = 1 e idxA = 2
     fingerprintA = fingerprints[idxA]
     for idxB, fingerprintB in enumerate(fingerprints):
         if idxA == idxB:

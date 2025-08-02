@@ -5,48 +5,69 @@ import uuid
 from datetime import datetime
 
 # Base paths: aggiungi tutte le directory necessarie
-BASE_DIRS = [
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/0",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/1",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/2",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/3",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/4",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/5",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/6",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/7",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/8",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/9",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/10",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/11",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/12",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/13",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/14",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/15",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/16",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/17",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/18",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/19",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/20",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/21",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/22",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/23",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/24",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/25",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/26",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/27",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/28",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/29",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/30",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/31",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/32",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/33",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/34",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/35",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/60",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/61",
-]
 
-OUTPUT_DIR = "relations_comparisons"
+#BASE_DIRS = [
+    #"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/0",
+    #"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/1",
+    #"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/2",
+    ##"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/3",
+    ##"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/4",
+    ##"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/5",
+    ##"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/6",
+    ##"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/7",
+    ##"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/8",
+    ##"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/9",
+    ##"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/10",
+    ##"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/11",
+    ##"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/12",
+    ##"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/13",
+    ##"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/14",
+    ##"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/15",
+    ##"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/16",
+    ##"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/17",
+    ##"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/18",
+    ##"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/19",
+    ##"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/20",
+    ##"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/21",
+    ##"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/22",
+    ##"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/23",
+    ##"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/24",
+    ##"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/25",
+    ##"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/26",
+    ##"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/27",
+    ##"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/28",
+    ##"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/29",
+    ##"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/30",
+    ##"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/31",
+    ##"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/32",
+    ##"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/33",
+    ##"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/34",
+    ##"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/35",
+    ##"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/60",
+    ##"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/61",
+#]
+
+
+#OUTPUT_DIR = "relations_comparisons"
+
+# Base directory relativa alla cartella del progetto
+BASE_COMPARISON_DIR = os.path.join(os.getcwd(), "All_comparisons")
+
+# Indici delle sottocartelle da includere
+folder_indices = list(range(36)) + [60, 61]
+
+# Generazione automatica dei percorsi completi
+BASE_DIRS = [os.path.join(BASE_COMPARISON_DIR, str(i)) for i in folder_indices]
+
+# Output directory relativa
+OUTPUT_DIR = os.path.join(os.getcwd(), "relations_comparisons")
+
+# (Facoltativo) Creazione delle directory se non esistono
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+for folder in BASE_DIRS:
+    os.makedirs(folder, exist_ok=True)
+
+
 unique_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
 OUTPUT_SUBDIR = os.path.join(OUTPUT_DIR, unique_id)
 os.makedirs(OUTPUT_SUBDIR, exist_ok=True)
