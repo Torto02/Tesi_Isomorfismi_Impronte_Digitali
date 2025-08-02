@@ -6,9 +6,9 @@ import numpy as np
 
 
 NODE_TYPE_COLOR_MAP = {
-    'ending': 'red',
-    'bifurcation': 'blue',
-    'added': 'lightgreen',
+    'ending': '#E44141',
+    'bifurcation': "#3939BA",
+    'added': "#4EC14E",
 }
 
 
@@ -45,7 +45,7 @@ def plot_and_save_subgraph(S, G_original, source_node, output_folder, filename):
         tipo = node_data.get('type', 'unknown')
         node_colors.append(FINAL_PLOT_NODE_COLOR_MAP.get(tipo, 'grey'))
         
-        node_sizes.append(2)
+        # node_sizes.append(3)
 
     plt.figure(figsize=(9, 9))
     ax = plt.gca() 
@@ -54,7 +54,7 @@ def plot_and_save_subgraph(S, G_original, source_node, output_folder, filename):
     nx.draw_networkx_nodes(
         S, pos_S,
         nodelist=node_list_S,
-        node_size=node_sizes,
+        node_size= 10,
         node_color=node_colors,
         linewidths=0, 
         
@@ -66,7 +66,7 @@ def plot_and_save_subgraph(S, G_original, source_node, output_folder, filename):
         S, pos_S,
         edgelist=true_ridge_edges,
         edge_color="darkgrey", 
-        width=0.2,           
+        width=0.3,           
         ax=ax
     )
 
@@ -86,7 +86,7 @@ def plot_and_save_subgraph(S, G_original, source_node, output_folder, filename):
     nx.draw_networkx_labels(
         S, pos_S,
         labels={n: str(n) for n in node_list_S},
-        font_size=0.5,  
+        font_size=0.8,  
         font_color="black",
         ax=ax
     )
@@ -98,12 +98,11 @@ def plot_and_save_subgraph(S, G_original, source_node, output_folder, filename):
     os.makedirs(output_folder, exist_ok=True)
     output_path = os.path.join(output_folder, filename)
     try:
-        plt.savefig(output_path, dpi=500, bbox_inches='tight')
+        plt.savefig(output_path, dpi=900, bbox_inches='tight')
         print(f"Immagine del sottografo salvata in: {output_path}")
     except Exception as e:
         print(f"Errore durante il salvataggio di {output_path}: {e}")
     plt.close()
-
 
 def plot_mapping(S_A, S_B, G_A, G_B, mapping, output_folder, filename, score=None):
     """
@@ -220,7 +219,6 @@ def plot_mapping(S_A, S_B, G_A, G_B, mapping, output_folder, filename, score=Non
     plt.savefig(os.path.join(output_folder, filename), dpi=800, bbox_inches='tight')
     plt.close(fig)
 
-
 def plot_final_graphs(
     G_A, G_B,
     matched_nodes_A, matched_nodes_B,
@@ -265,7 +263,7 @@ def plot_final_graphs(
             labels_A[n] = str(n)
 
     
-    nx.draw_networkx_nodes(G_A, posA, nodelist=nodes_A_list, node_size=node_sizes_A, 
+    nx.draw_networkx_nodes(G_A, posA, nodelist=nodes_A_list, node_size=2,        
                           node_color=node_colors_A, ax=ax1, linewidths=0)
     edge_colors_A = []
     edge_widths_A = []
@@ -277,7 +275,7 @@ def plot_final_graphs(
     nx.draw_networkx_edges(G_A, posA, edgelist=edges_A_no_added, edge_color=edge_colors_A, 
                           width=edge_widths_A, ax=ax1)
 
-    nx.draw_networkx_labels(G_A, posA, labels=labels_A, font_size=0.5, font_color='black', ax=ax1)
+    # nx.draw_networkx_labels(G_A, posA, labels=labels_A, font_size=0.02, font_color='black', ax=ax1)
 
     
     if centerA_coords and radiusA:
@@ -295,20 +293,13 @@ def plot_final_graphs(
     node_colors_B = []
     node_sizes_B = []
     labels_B = {}  
-    for n in nodes_B_list:
-        
-        
-        
-        
-        
-        
-        
+    for n in nodes_B_list:        
             node_type = G_B.nodes[n].get('type', 'unknown')
             node_colors_B.append(FINAL_PLOT_NODE_COLOR_MAP.get(node_type, 'grey'))
             node_sizes_B.append(1)
             labels_B[n] = str(n)
 
-    nx.draw_networkx_nodes(G_B, posB, nodelist=nodes_B_list, node_size=node_sizes_B, 
+    nx.draw_networkx_nodes(G_B, posB, nodelist=nodes_B_list, node_size=2,        
                           node_color=node_colors_B, ax=ax2, linewidths=0)
 
     edge_colors_B = []
@@ -320,7 +311,7 @@ def plot_final_graphs(
     nx.draw_networkx_edges(G_B, posB, edgelist=edges_B_no_added, edge_color=edge_colors_B, 
                           width=edge_widths_B, ax=ax2)
 
-    nx.draw_networkx_labels(G_B, posB, labels=labels_B, font_size=0.5, font_color='black', ax=ax2)
+    # nx.draw_networkx_labels(G_B, posB, labels=labels_B, font_size=0.02, font_color='black', ax=ax2)
 
     
     if centerB_coords and radiusB:
@@ -422,168 +413,168 @@ def plot_match_with_context(macro_A, macro_B, sub_A, sub_B,
     plt.savefig(out_path, dpi=600, bbox_inches="tight")
     plt.close()
 
-def plot_chirality_check(G_A, G_B, mapping, output_folder, filename, score=None):
-    """
-    Plotta i controlli di chiralità per ogni tripletta di nodi connessi nel mapping.
-    Mostra i prodotti vettoriali e indica se sono coerenti o meno.
-    """
-    from matching import get_real_neighbors_via_added, _orientation
+# def plot_chirality_check(G_A, G_B, mapping, output_folder, filename, score=None):
+#     """
+#     Plotta i controlli di chiralità per ogni tripletta di nodi connessi nel mapping.
+#     Mostra i prodotti vettoriali e indica se sono coerenti o meno.
+#     """
+#     # from matching import get_real_neighbors_via_added, _orientation
     
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 10))
+#     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 10))
     
-    # Ottieni posizioni
-    pos_A = nx.get_node_attributes(G_A, 'pos')
-    pos_B = nx.get_node_attributes(G_B, 'pos')
+#     # Ottieni posizioni
+#     pos_A = nx.get_node_attributes(G_A, 'pos')
+#     pos_B = nx.get_node_attributes(G_B, 'pos')
     
-    # Filtra solo nodi reali nel mapping
-    real_mapping = {n: mapping[n] for n in mapping.keys() 
-                   if G_A.nodes[n].get('type') != 'added'}
+#     # Filtra solo nodi reali nel mapping
+#     real_mapping = {n: mapping[n] for n in mapping.keys() 
+#                    if G_A.nodes[n].get('type') != 'added'}
     
-    triplet_results = []
+#     triplet_results = []
     
-    # Per ogni nodo centrale nel mapping
-    for nodeA, nodeB in real_mapping.items():
-        neighborsA = get_real_neighbors_via_added(G_A, nodeA)
-        mapped_neighbors_A = [n for n in neighborsA if n in mapping]
+#     # Per ogni nodo centrale nel mapping
+#     # for nodeA, nodeB in real_mapping.items():
+#     #     neighborsA = get_real_neighbors_via_added(G_A, nodeA)
+#     #     mapped_neighbors_A = [n for n in neighborsA if n in mapping]
         
-        if len(mapped_neighbors_A) < 2:
-            continue
+#     #     if len(mapped_neighbors_A) < 2:
+#     #         continue
             
-        # Testa tutte le combinazioni di triplette
-        for i in range(len(mapped_neighbors_A)):
-            for j in range(i+1, len(mapped_neighbors_A)):
-                nodeA1, nodeA2 = mapped_neighbors_A[i], mapped_neighbors_A[j]
-                nodeB1, nodeB2 = mapping[nodeA1], mapping[nodeA2]
+#     #     # Testa tutte le combinazioni di triplette
+#     #     for i in range(len(mapped_neighbors_A)):
+#     #         for j in range(i+1, len(mapped_neighbors_A)):
+#     #             nodeA1, nodeA2 = mapped_neighbors_A[i], mapped_neighbors_A[j]
+#     #             nodeB1, nodeB2 = mapping[nodeA1], mapping[nodeA2]
                 
-                try:
-                    # Calcola orientazioni
-                    posA = pos_A[nodeA]
-                    posA1 = pos_A[nodeA1] 
-                    posA2 = pos_A[nodeA2]
-                    cross_A = _orientation(posA, posA1, posA2)
+#     #             try:
+#     #                 # Calcola orientazioni
+#     #                 posA = pos_A[nodeA]
+#     #                 posA1 = pos_A[nodeA1] 
+#     #                 posA2 = pos_A[nodeA2]
+#     #                 cross_A = _orientation(posA, posA1, posA2)
                     
-                    posB = pos_B[nodeB]
-                    posB1 = pos_B[nodeB1]
-                    posB2 = pos_B[nodeB2]
-                    cross_B = _orientation(posB, posB1, posB2)
+#     #                 posB = pos_B[nodeB]
+#     #                 posB1 = pos_B[nodeB1]
+#     #                 posB2 = pos_B[nodeB2]
+#     #                 cross_B = _orientation(posB, posB1, posB2)
                     
-                    # Salta se troppo piccoli (collineari)
-                    if abs(cross_A) < 1e-6 or abs(cross_B) < 1e-6:
-                        continue
+#     #                 # Salta se troppo piccoli (collineari)
+#     #                 if abs(cross_A) < 1e-6 or abs(cross_B) < 1e-6:
+#     #                     continue
                         
-                    is_consistent = cross_A * cross_B > 0
+#     #                 is_consistent = cross_A * cross_B > 0
                     
-                    triplet_results.append({
-                        'center_A': nodeA, 'n1_A': nodeA1, 'n2_A': nodeA2,
-                        'center_B': nodeB, 'n1_B': nodeB1, 'n2_B': nodeB2,
-                        'cross_A': cross_A, 'cross_B': cross_B,
-                        'consistent': is_consistent
-                    })
+#     #                 triplet_results.append({
+#     #                     'center_A': nodeA, 'n1_A': nodeA1, 'n2_A': nodeA2,
+#     #                     'center_B': nodeB, 'n1_B': nodeB1, 'n2_B': nodeB2,
+#     #                     'cross_A': cross_A, 'cross_B': cross_B,
+#     #                     'consistent': is_consistent
+#     #                 })
                     
-                except KeyError:
-                    continue
+#     #             except KeyError:
+#     #                 continue
     
-    # Disegna grafo A
-    real_nodes_A = [n for n in G_A.nodes() if G_A.nodes[n].get('type') != 'added']
-    node_colors_A = [NODE_TYPE_COLOR_MAP.get(G_A.nodes[n].get('type', 'unknown'), 'grey') 
-                     for n in real_nodes_A]
+#     # Disegna grafo A
+#     real_nodes_A = [n for n in G_A.nodes() if G_A.nodes[n].get('type') != 'added']
+#     node_colors_A = [NODE_TYPE_COLOR_MAP.get(G_A.nodes[n].get('type', 'unknown'), 'grey') 
+#                      for n in real_nodes_A]
     
-    nx.draw_networkx_nodes(G_A, pos_A, nodelist=real_nodes_A, 
-                          node_size=30, node_color=node_colors_A,
-                          edgecolors='black', linewidths=0.5, ax=ax1)
+#     nx.draw_networkx_nodes(G_A, pos_A, nodelist=real_nodes_A, 
+#                           node_size=30, node_color=node_colors_A,
+#                           edgecolors='black', linewidths=0.5, ax=ax1)
     
-    # Disegna archi non-added
-    real_edges_A = [(u, v) for u, v, d in G_A.edges(data=True) 
-                    if d.get('type') != 'added']
-    nx.draw_networkx_edges(G_A, pos_A, edgelist=real_edges_A,
-                          edge_color='darkgrey', width=0.5, ax=ax1)
+#     # Disegna archi non-added
+#     real_edges_A = [(u, v) for u, v, d in G_A.edges(data=True) 
+#                     if d.get('type') != 'added']
+#     nx.draw_networkx_edges(G_A, pos_A, edgelist=real_edges_A,
+#                           edge_color='darkgrey', width=0.5, ax=ax1)
     
-    # Evidenzia nodi mappati
-    mapped_nodes_A = list(real_mapping.keys())
-    nx.draw_networkx_nodes(G_A, pos_A, nodelist=mapped_nodes_A,
-                          node_size=50, node_color='yellow',
-                          edgecolors='red', linewidths=2, ax=ax1)
+#     # Evidenzia nodi mappati
+#     mapped_nodes_A = list(real_mapping.keys())
+#     nx.draw_networkx_nodes(G_A, pos_A, nodelist=mapped_nodes_A,
+#                           node_size=50, node_color='yellow',
+#                           edgecolors='red', linewidths=2, ax=ax1)
     
-    # Disegna grafo B
-    real_nodes_B = [n for n in G_B.nodes() if G_B.nodes[n].get('type') != 'added']
-    node_colors_B = [NODE_TYPE_COLOR_MAP.get(G_B.nodes[n].get('type', 'unknown'), 'grey') 
-                     for n in real_nodes_B]
+#     # Disegna grafo B
+#     real_nodes_B = [n for n in G_B.nodes() if G_B.nodes[n].get('type') != 'added']
+#     node_colors_B = [NODE_TYPE_COLOR_MAP.get(G_B.nodes[n].get('type', 'unknown'), 'grey') 
+#                      for n in real_nodes_B]
     
-    nx.draw_networkx_nodes(G_B, pos_B, nodelist=real_nodes_B,
-                          node_size=30, node_color=node_colors_B,
-                          edgecolors='black', linewidths=0.5, ax=ax2)
+#     nx.draw_networkx_nodes(G_B, pos_B, nodelist=real_nodes_B,
+#                           node_size=30, node_color=node_colors_B,
+#                           edgecolors='black', linewidths=0.5, ax=ax2)
     
-    real_edges_B = [(u, v) for u, v, d in G_B.edges(data=True) 
-                    if d.get('type') != 'added']
-    nx.draw_networkx_edges(G_B, pos_B, edgelist=real_edges_B,
-                          edge_color='darkgrey', width=0.5, ax=ax2)
+#     real_edges_B = [(u, v) for u, v, d in G_B.edges(data=True) 
+#                     if d.get('type') != 'added']
+#     nx.draw_networkx_edges(G_B, pos_B, edgelist=real_edges_B,
+#                           edge_color='darkgrey', width=0.5, ax=ax2)
     
-    mapped_nodes_B = list(real_mapping.values())
-    nx.draw_networkx_nodes(G_B, pos_B, nodelist=mapped_nodes_B,
-                          node_size=50, node_color='yellow',
-                          edgecolors='red', linewidths=2, ax=ax2)
+#     mapped_nodes_B = list(real_mapping.values())
+#     nx.draw_networkx_nodes(G_B, pos_B, nodelist=mapped_nodes_B,
+#                           node_size=50, node_color='yellow',
+#                           edgecolors='red', linewidths=2, ax=ax2)
     
-    # Disegna triplette e orientamenti
-    consistent_count = 0
-    total_count = len(triplet_results)
+#     # Disegna triplette e orientamenti
+#     consistent_count = 0
+#     total_count = len(triplet_results)
     
-    for idx, result in enumerate(triplet_results):
-        color = 'green' if result['consistent'] else 'red'
-        alpha = 0.7
+#     for idx, result in enumerate(triplet_results):
+#         color = 'green' if result['consistent'] else 'red'
+#         alpha = 0.7
         
-        # Grafo A - disegna triangolo
-        points_A = np.array([pos_A[result['center_A']], 
-                            pos_A[result['n1_A']], 
-                            pos_A[result['n2_A']]])
-        triangle_A = plt.Polygon(points_A, fill=False, edgecolor=color, 
-                                linewidth=2, alpha=alpha)
-        ax1.add_patch(triangle_A)
+#         # Grafo A - disegna triangolo
+#         points_A = np.array([pos_A[result['center_A']], 
+#                             pos_A[result['n1_A']], 
+#                             pos_A[result['n2_A']]])
+#         triangle_A = plt.Polygon(points_A, fill=False, edgecolor=color, 
+#                                 linewidth=2, alpha=alpha)
+#         ax1.add_patch(triangle_A)
         
-        # Grafo B - disegna triangolo
-        points_B = np.array([pos_B[result['center_B']], 
-                            pos_B[result['n1_B']], 
-                            pos_B[result['n2_B']]])
-        triangle_B = plt.Polygon(points_B, fill=False, edgecolor=color,
-                                linewidth=2, alpha=alpha)
-        ax2.add_patch(triangle_B)
+#         # Grafo B - disegna triangolo
+#         points_B = np.array([pos_B[result['center_B']], 
+#                             pos_B[result['n1_B']], 
+#                             pos_B[result['n2_B']]])
+#         triangle_B = plt.Polygon(points_B, fill=False, edgecolor=color,
+#                                 linewidth=2, alpha=alpha)
+#         ax2.add_patch(triangle_B)
         
-        if result['consistent']:
-            consistent_count += 1
+#         if result['consistent']:
+#             consistent_count += 1
     
-    # Aggiungi etichette ai nodi mappati
-    nx.draw_networkx_labels(G_A, pos_A, labels={n: str(n) for n in mapped_nodes_A},
-                           font_size=6, ax=ax1)
-    nx.draw_networkx_labels(G_B, pos_B, labels={n: str(n) for n in mapped_nodes_B},
-                           font_size=6, ax=ax2)
+#     # Aggiungi etichette ai nodi mappati
+#     nx.draw_networkx_labels(G_A, pos_A, labels={n: str(n) for n in mapped_nodes_A},
+#                            font_size=6, ax=ax1)
+#     nx.draw_networkx_labels(G_B, pos_B, labels={n: str(n) for n in mapped_nodes_B},
+#                            font_size=6, ax=ax2)
 
-    consistency_rate = (consistent_count / total_count * 100) if total_count > 0 else 0
+#     consistency_rate = (consistent_count / total_count * 100) if total_count > 0 else 0
     
-    ax1.set_title(f"Grafo A - Chirality Check\n{consistent_count}/{total_count} consistent ({consistency_rate:.1f}%)")
-    ax1.axis('off')
-    ax1.set_aspect('equal')
+#     ax1.set_title(f"Grafo A - Chirality Check\n{consistent_count}/{total_count} consistent ({consistency_rate:.1f}%)")
+#     ax1.axis('off')
+#     ax1.set_aspect('equal')
     
-    ax2.set_title(f"Grafo B - Chirality Check\n{consistent_count}/{total_count} consistent ({consistency_rate:.1f}%)")  
-    ax2.axis('off')
-    ax2.set_aspect('equal')
+#     ax2.set_title(f"Grafo B - Chirality Check\n{consistent_count}/{total_count} consistent ({consistency_rate:.1f}%)")  
+#     ax2.axis('off')
+#     ax2.set_aspect('equal')
     
-    if score is not None:
-        plt.suptitle(f"Chirality Analysis - Match Score: {score:.4f}", fontsize=14)
-    else:
-        plt.suptitle("Chirality Analysis", fontsize=14)
+#     if score is not None:
+#         plt.suptitle(f"Chirality Analysis - Match Score: {score:.4f}", fontsize=14)
+#     else:
+#         plt.suptitle("Chirality Analysis", fontsize=14)
     
-    # Legenda
-    legend_elements = [
-        plt.Line2D([0], [0], color='green', lw=2, label='Consistent orientation'),
-        plt.Line2D([0], [0], color='red', lw=2, label='Inconsistent orientation'),
-        plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='yellow', 
-                  markersize=8, markeredgecolor='red', label='Mapped nodes')
-    ]
-    ax2.legend(handles=legend_elements, loc='upper right', bbox_to_anchor=(1.3, 1))
+#     # Legenda
+#     legend_elements = [
+#         plt.Line2D([0], [0], color='green', lw=2, label='Consistent orientation'),
+#         plt.Line2D([0], [0], color='red', lw=2, label='Inconsistent orientation'),
+#         plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='yellow', 
+#                   markersize=8, markeredgecolor='red', label='Mapped nodes')
+#     ]
+#     ax2.legend(handles=legend_elements, loc='upper right', bbox_to_anchor=(1.3, 1))
     
-    plt.tight_layout()
-    os.makedirs(output_folder, exist_ok=True)
-    output_path = os.path.join(output_folder, filename)
-    plt.savefig(output_path, dpi=600, bbox_inches='tight')
-    plt.close()
+#     plt.tight_layout()
+#     os.makedirs(output_folder, exist_ok=True)
+#     output_path = os.path.join(output_folder, filename)
+#     plt.savefig(output_path, dpi=600, bbox_inches='tight')
+#     plt.close()
     
-    return consistent_count, total_count
+#     return consistent_count, total_count

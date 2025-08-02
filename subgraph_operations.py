@@ -1,4 +1,3 @@
-
 """
 Miglioramento delle funzioni di estrazione dei sottografi con rimozione dei
 risultati duplicati (stesso insieme di minuzie reali e stessi archi reali).
@@ -29,36 +28,18 @@ def _is_added(G: nx.Graph, n: int) -> bool:
     return G.nodes[n].get("type") == "added"
 
 
-def _canonical_signature(
-    G: nx.Graph, node_set: Set[int]
-) -> Tuple[Tuple[int, ...], Tuple[Tuple[int, int], ...]]:
-    """Restituisce una firma hashable che ignora nodi/archi 'added'."""
-    # real_nodes: Tuple[int, ...] = tuple(sorted(n for n in node_set if not _is_added(G, n)))
-    """
-    Restituisce una firma hashable che include tutti i nodi e tutti gli archi,
-    compresi quelli 'added', in modo da distinguere varianti diverse.
-    """
-    # Tutti i nodi (inclusi added), ordinati
-    all_nodes: Tuple[int, ...] = tuple(sorted(node_set))
-
-
-
-    # real_edges: Tuple[Tuple[int, int], ...] = tuple(
-    # Tutti gli archi (inclusi added), ordinati con endpoint in ordine
-    all_edges: Tuple[Tuple[int, int], ...] = tuple(
+def _canonical_signature(G: nx.Graph, node_set: Set[int]) -> Tuple:
+    all_nodes = tuple(sorted(node_set))
+    all_edges = tuple(
         sorted(
-            # (
-            #     (u, v) if u < v else (v, u)
-            #     for u, v, d in G.subgraph(node_set).edges(data=True)
-            #     if d.get("type") != "added" and not _is_added(G, u) and not _is_added(G, v)
-            # )
-            (u, v) if u < v else (v, u)
-            for u, v, _ in G.subgraph(node_set).edges(data=True)
+            (
+                (min(u, v), max(u, v), G.edges[u, v].get("type", "real"))
+                for u, v in G.subgraph(node_set).edges()
+            )
         )
     )
-
-    # return real_nodes, real_edges
     return all_nodes, all_edges
+
 
 def _deduplicate(
     G: nx.Graph, candidates: List[Tuple[Tuple[int, ...], nx.Graph]]
@@ -122,8 +103,6 @@ def _expand_worker(args):
 
     S = nx.Graph()
     S.add_nodes_from(S_nodes)
-    # print(f"nodes: {S.nodes()}")
-    # print(f"edges: {S_edges}")
     S.add_edges_from(S_edges)
 
 
@@ -132,37 +111,20 @@ def _expand_worker(args):
 
     results: Set[FrozenSet[int]] = set()
 
-    # def expand(curr: Set[int], cands: Set[int]):
-    #     r = count_real(curr)
-    #     if r == size:
-    #         results.add(frozenset(curr))
-    #         return
-    #     if r > size or not cands:
-    #         return
-    #     for n in list(cands):
-    #         if not _is_added(S, n) and r + 1 > size:
-    #             continue
-    #         new_curr = curr | {n}
-    #         rem = cands - {n}
-    #         new_nei = set(S.neighbors(n))
-    #         expand(new_curr, rem | (new_nei - new_curr))
+    
     def expand(curr: Set[int], cands: Set[int], added_edges_count: int = 0):
         r = count_real(curr)
         if r > size or added_edges_count > 1 or not cands:
             return
-        # Se ho già enough real nodes, registro e torno
         if r == size:
             results.add(frozenset(curr))
             return
-        for n in list(cands):
-            # evita overshoot di real nodes
-            if not _is_added(S, n) and r + 1 > size:
-                continue
+        for n in cands:
             # conto quanti archi 'added' introdurrei collegando n a curr
             added_edges_between = sum(
-                1
+                S.edges[m, n].get("type") == "added"
                 for m in curr
-                if S.has_edge(m, n) and S.edges[m, n].get("type") == "added"
+                if S.has_edge(m, n)
             )
             new_added = added_edges_count + added_edges_between
             # permetto al massimo un arco 'added'
@@ -174,9 +136,6 @@ def _expand_worker(args):
             expand(new_curr, rem | (new_nei - new_curr), new_added)
 
 
-    # print(f"Expanding from {start} with size {size}")
-    # print(f"Initial neighbors: {set(S.neighbors(start))}")
-    # expand({start}, set(S.neighbors(start)))
     expand({start}, set(S.neighbors(start)), 0)
     return results
 
@@ -193,19 +152,17 @@ def get_connected_subgraphs_of_minutiae_parallel(
     if not S.nodes():
         return []
 
+    #! build di sub_G con tutti i nodi + gli archi solo reali 
     if S_real is None:
         S_real = build_S_real(S)
 
     S_nodes = list(S.nodes(data=True))
-    # S_edges = [(u, v) for u, v, d in S.edges(data=True) if d.get("type") != "added"]
     # Include all edges con i loro attributi, per poter utilizzare anche gli 'added'
     S_edges = [(u, v, d.copy()) for u, v, d in S.edges(data=True)]
     print(f"Starting parallel search for subgraphs of size {size}...")
     print(f"Number of nodes in S: {len(S_nodes)}")
     print(f"number of real edges in S: {sum(1 for u, v, d in S_edges if d.get('type') != 'added')}")
     print(f"number of added edges in S: {sum(1 for u, v, d in S_edges if d.get('type') == 'added')}")
-
-    #!Dovremo permettere il passaggio anche degli archi added
 
     all_nodes = list(S.nodes())
 
@@ -219,17 +176,18 @@ def get_connected_subgraphs_of_minutiae_parallel(
     # ------------------  post‑processing  -----------------------------
     final: List[Tuple[Tuple[int, ...], nx.Graph]] = []
     for node_set in candidate_sets:
-        subG = S.subgraph(node_set).copy()
         real_nodes = [n for n in node_set if not _is_added(S, n)]
+        if len(real_nodes) < 2:
+            continue
+        subG = S.subgraph(node_set).copy()
         to_remove = []
-        if len(real_nodes) >= 2:
-            for v in list(node_set):
-                if _is_added(S, v):
-                    Gm = subG.copy()
-                    Gm.remove_node(v)
-                    reachable = nx.node_connected_component(Gm, real_nodes[0])
-                    if set(real_nodes).issubset(reachable):
-                        to_remove.append(v)
+        for v in node_set:
+            if _is_added(S, v):
+                Gm = subG.copy()
+                Gm.remove_node(v)
+                if not all(n in nx.node_connected_component(Gm, real_nodes[0]) for n in real_nodes):
+                    continue
+                to_remove.append(v)
         kept = set(node_set) - set(to_remove)
         if sum(1 for n in kept if not _is_added(S, n)) == size:
             final.append((tuple(sorted(kept)), S.subgraph(kept).copy()))

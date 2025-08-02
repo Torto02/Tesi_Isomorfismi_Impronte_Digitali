@@ -43,7 +43,6 @@ def single_source_shortest_paths_and_costs(graph, source, weight_func):
         # Usa nx.single_source_dijkstra che ritorna distanze e percorsi
         # Il parametro target=None fa sì che calcoli per tutti i nodi raggiungibili
         distances, paths = nx.single_source_dijkstra(graph, source, weight='temp_weight')
-        #! Può tornare utile il path per i nodi non raggiungibili?
 
     except nx.NetworkXNoPath:
         # Caso in cui non ci sono percorsi dal nodo source (es. isolato o disconnesso)
@@ -67,7 +66,6 @@ def single_source_shortest_paths_and_costs(graph, source, weight_func):
 
     return distances, paths
 
-
 def count_intermediate_added_nodes(graph, path):
     """
     Conta i nodi con type='added' in un percorso, ESCLUDENDO il primo e l'ultimo nodo.
@@ -83,8 +81,6 @@ def count_intermediate_added_nodes(graph, path):
             if graph.has_node(node_id) and graph.nodes[node_id].get('type') == 'added':
                 count += 1
         except KeyError:
-             # Potrebbe mancare l'attributo 'type', consideralo non-added
-             # print(f"Attenzione: Nodo {node_id} nel percorso manca dell'attributo 'type'.")
              pass
         except Exception as e:
              print(f"Errore nel controllare il tipo del nodo {node_id} nel percorso: {e}")
@@ -131,7 +127,7 @@ def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
     Ritorna:
         tuple: (G, M1, M_scavalcamenti, M3) o (None, None, None, None) in caso di errore critico.
     """
-    # Carica i file JSON
+    #! 1) Carica i file JSON
     nodes_file = os.path.join(folder_path, "nodes_graph.json")
     edges_file = os.path.join(folder_path, "edges_graph.json")
 
@@ -149,7 +145,7 @@ def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
     m3_path = os.path.join(matrices_folder, "M3.csv")
     # m2_path e m4_path rimossi
 
-    # --- Costruzione Grafo G ---
+    #! 2) --- Costruzione Grafo G ---
     G = nx.Graph()
     node_map = {} # Mappa da ID originale a indice interno (0..N-1) se necessario
     node_list_for_matrix = [] # Lista ordinata dei nodi per coerenza con le matrici
@@ -201,16 +197,15 @@ def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
         print(f"Errore: Grafo vuoto per {impronta_nome}.")
         return G, [], [], [] # Ritorna matrici vuote se il grafo è vuoto
 
-    # --- Caricamento o Calcolo Matrici ---
+    #! 3) --- Caricamento o Calcolo Matrici ---
 
     # Prova a caricare le matrici esistenti
     M1 = load_matrix_from_file(m1_path)
     M_scavalcamenti = load_matrix_from_file(m_scavalcamenti_path)
     M3 = load_matrix_from_file(m3_path)
 
-    # Verifica se tutte le matrici necessarie sono state caricate con successo
+    #! 4.A) Verifica se tutte le matrici necessarie sono state caricate con successo
     if M1 is not None and M_scavalcamenti is not None and M3 is not None:
-         # Verifica anche le dimensioni per sicurezza
          valid_dims = (len(M1) == N and len(M1[0]) == N and
                        len(M_scavalcamenti) == N and len(M_scavalcamenti[0]) == N and
                        len(M3) == N and len(M3[0]) == N)
@@ -219,12 +214,11 @@ def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
              return G, M1, M_scavalcamenti, M3
          else:
              print(f"\nDimensioni matrici caricate non valide per {impronta_nome}. Ricalcolo...")
-             M1, M_scavalcamenti, M3 = None, None, None # Forza ricalcolo
+             M1, M_scavalcamenti, M3 = None, None, None 
     else:
         print(f"\nUna o più matrici non trovate o non valide per {impronta_nome}. Ricalcolo...")
-        # Non è necessario impostare a None qui, il codice successivo lo gestirà
 
-    # --- Calcolo Matrici (se non caricate) ---
+    #! 4.B) --- Calcolo Matrici (se non caricate) ---
     print(f"\nInizio calcolo matrici per {impronta_nome}...")
     os.makedirs(matrices_folder, exist_ok=True) # Crea la cartella se non esiste
 
@@ -243,7 +237,7 @@ def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
              return 1000.0 # Assegna un costo alto per penalizzare
 
 
-    # Inizializza matrici con 'inf' solo se non sono state caricate
+    #! 4.B.1) Inizializza matrici con valori di default
     if M1 is None:
         M1 = [[float('inf')] * N for _ in range(N)]
         for i in range(N): M1[i][i] = 0.0
@@ -254,7 +248,7 @@ def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
         M3 = [[float('inf')] * N for _ in range(N)]
         for i in range(N): M3[i][i] = 0.0
 
-    #! Calcolo M1 e M_scavalcamenti (usando Dijkstra)
+    #! 4.B.2) Calcolo M1 e M_scavalcamenti (usando Dijkstra)
     print("Calcolo M1 (costo shortest path) e M_scavalcamenti (conta 'added')...")
     # Itera usando gli ID dei nodi presenti nel grafo
     for node_start_id in node_list_for_matrix:
@@ -262,7 +256,7 @@ def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
 
         # Ottieni l'indice della matrice per il nodo di partenza
         idx_start = node_map.get(node_start_id)
-        if idx_start is None: continue # Salta se l'ID non ha un indice mappato
+        if idx_start is None: continue
 
         # Popola le matrici per tutte le destinazioni raggiunte
         for node_end_id, dist_val in distances.items():
@@ -283,7 +277,7 @@ def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
                  M_scavalcamenti[idx_start][idx_end] = float('inf')
 
 
-    # Calcolo M3 (euclidea pura) - Assicurati che venga calcolata solo se necessario
+    #! 4.B.3) Calcolo M3 (euclidea pura)
     if M3[0][1] == float('inf'): # Controlla se M3 è stata inizializzata ma non calcolata
         print("Calcolo M3 (distanza euclidea)...")
         coords = nx.get_node_attributes(G, 'pos')
