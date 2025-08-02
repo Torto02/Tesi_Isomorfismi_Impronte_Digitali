@@ -1,5 +1,3 @@
-
-
 #!/usr/bin/env python3
 import os
 import math
@@ -331,8 +329,6 @@ def main():
     valid.sort(key=lambda x: x[3], reverse=True)
     print(f"Trovati {len(valid)} match validi:")
 
-    # ...existing code...
-
     def calculate_relation(idA, idB):
         """
         Calcola la relazione di parentela tra due impronte basandosi sul loro codice.
@@ -401,9 +397,6 @@ def main():
                     "subgraphB_nodes": list(subG_B.nodes)
                 }
             )
-
-    # ...existing code...
-
 
     # for rank, (i, j, mapping, score) in enumerate(valid, start=1):
     #     print(f"{rank}. A#{i} vs B#{j} → score {score:.4f}")

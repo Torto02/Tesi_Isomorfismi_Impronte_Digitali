@@ -1,6 +1,7 @@
 # graph_processing.py
 import os
 import json
+import pandas as pd
 import networkx as nx
 import math
 
@@ -88,30 +89,22 @@ def count_intermediate_added_nodes(graph, path):
     return count
 
 def load_matrix_from_file(file_path):
-    """Carica una matrice da un file CSV."""
-    matrix = []
+    """Carica una matrice da un file Parquet."""
     try:
-        with open(file_path, 'r') as f:
-            for line in f:
-                # Gestisce correttamente 'inf' e converte gli altri in float
-                row = [float(val) if val.strip().lower() != 'inf' else float('inf') for val in line.strip().split(',')]
-                matrix.append(row)
+        return pd.read_parquet(file_path).values.tolist()
     except FileNotFoundError:
         print(f"Attenzione: File matrice non trovato: {file_path}. Sarà ricalcolato.")
-        return None # Ritorna None se il file non esiste
+        return None
     except Exception as e:
         print(f"Errore durante la lettura della matrice {file_path}: {e}. Sarà ricalcolato.")
-        return None # Ritorna None in caso di altri errori di lettura
-    return matrix
+        return None
 
 def save_matrix_to_file(matrix, filename):
-    """Salva una matrice (lista di liste) su file CSV, gestendo 'inf'."""
+    """Salva una matrice (lista di liste) su file Parquet."""
     try:
         os.makedirs(os.path.dirname(filename), exist_ok=True)
-        with open(filename, 'w') as f:
-            for row in matrix:
-                # Converte inf in stringa 'inf', altri numeri in stringa standard
-                f.write(','.join( str(x) if x != float('inf') else 'inf' for x in row ) + '\n')
+        df = pd.DataFrame(matrix)
+        df.to_parquet(filename, index=False)
     except Exception as e:
         print(f"Errore durante il salvataggio della matrice {filename}: {e}")
 
@@ -232,7 +225,7 @@ def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
             return 5.0
         elif arco_type == 'ridge': # Tipo 'ridge' o altri considerati "reali"
             return 0.0001 # Costo molto basso per favorire questi archi
-        else: # Tipi sconosciuti o archi senza attributi
+        else # Tipi sconosciuti o archi senza attributi
              # print(f"Attenzione: Tipo arco non gestito o dati mancanti per ({u},{v}). Tipo: {arco_type}. Assegnato peso alto.")
              return 1000.0 # Assegna un costo alto per penalizzare
 
@@ -298,6 +291,13 @@ def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
 
     # --- Salvataggio Matrici Calcolate ---
     print("Salvataggio matrici calcolate...")
+    save_matrix_to_file(M1, m1_path)
+    save_matrix_to_file(M_scavalcamenti, m_scavalcamenti_path)
+    save_matrix_to_file(M3, m3_path)
+    print(f"M1, M_scavalcamenti, M3 salvate in: {matrices_folder}")
+
+    # Ritorna il grafo e le matrici calcolate/caricate
+    return G, M1, M_scavalcamenti, M3
     save_matrix_to_file(M1, m1_path)
     save_matrix_to_file(M_scavalcamenti, m_scavalcamenti_path)
     save_matrix_to_file(M3, m3_path)

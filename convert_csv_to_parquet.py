@@ -9,18 +9,17 @@ def convert_csv_to_parquet(base_dir):
                 parquet_path = os.path.splitext(csv_path)[0] + '.parquet'
                 
                 # Controlla se il file Parquet esiste già
-            
+                if os.path.exists(parquet_path):
+                    print(f"Skipped (already exists): {parquet_path}")
+                    continue
                 
                 try:
                     # Legge il file CSV
                     df = pd.read_csv(csv_path)
                     # Converte in Parquet
-                    # if os.path.exists(parquet_path):
-                    #     print(f"Skipped (already exists): {parquet_path}")
-                    # else:
-                    #     df.to_parquet(parquet_path, index=False)
-                    #     print(f"Converted: {csv_path} -> {parquet_path}")
-
+                    df.to_parquet(parquet_path, index=False)
+                    print(f"Converted: {csv_path} -> {parquet_path}")
+                    
                     # Elimina il file CSV originale
                     os.remove(csv_path)
                     print(f"Deleted: {csv_path}")
@@ -29,4 +28,5 @@ def convert_csv_to_parquet(base_dir):
 
 if __name__ == "__main__":
     base_directory = "OutputMatrices"  # Percorso base della struttura
+    convert_csv_to_parquet(base_directory)
     convert_csv_to_parquet(base_directory)
