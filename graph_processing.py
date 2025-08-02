@@ -88,7 +88,7 @@ def count_intermediate_added_nodes(graph, path):
     return count
 
 def load_matrix_from_file(file_path):
-    """Carica una matrice da un file parquet."""
+    """Carica una matrice da un file CSV."""
     matrix = []
     try:
         with open(file_path, 'r') as f:
@@ -105,7 +105,7 @@ def load_matrix_from_file(file_path):
     return matrix
 
 def save_matrix_to_file(matrix, filename):
-    """Salva una matrice (lista di liste) su file parquet, gestendo 'inf'."""
+    """Salva una matrice (lista di liste) su file CSV, gestendo 'inf'."""
     try:
         os.makedirs(os.path.dirname(filename), exist_ok=True)
         with open(filename, 'w') as f:
@@ -140,9 +140,9 @@ def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
     matrices_folder = os.path.join(matrices_output_base_folder, impronta_nome)
 
     # Definisci i percorsi per le matrici necessarie
-    m1_path = os.path.join(matrices_folder, "M1.parquet")
-    m_scavalcamenti_path = os.path.join(matrices_folder, "M_scavalcamenti.parquet") # Nuovo nome
-    m3_path = os.path.join(matrices_folder, "M3.parquet")
+    m1_path = os.path.join(matrices_folder, "M1.csv")
+    m_scavalcamenti_path = os.path.join(matrices_folder, "M_scavalcamenti.csv") # Nuovo nome
+    m3_path = os.path.join(matrices_folder, "M3.csv")
     # m2_path e m4_path rimossi
 
     #! 2) --- Costruzione Grafo G ---

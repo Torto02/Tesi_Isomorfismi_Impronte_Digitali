@@ -35,7 +35,7 @@ if len(fingerprints) < 2:
 
 # Loop through all other fingerprints using only the first one as A
 fingerprintA = fingerprints[0]
-for idxA in [38,40,41,42,43]:  # Esegui il ciclo per idxA = 1 e idxA = 2
+for idxA in [38,39,40,41,42]:  # Esegui il ciclo per idxA = 1 e idxA = 2
     fingerprintA = fingerprints[idxA]
     for idxB, fingerprintB in enumerate(fingerprints):
         if idxA == idxB:
