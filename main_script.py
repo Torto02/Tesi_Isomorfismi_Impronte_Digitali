@@ -164,14 +164,13 @@ def worker_match_indices(indices):
     subG_B = _global_subB[j][1]
     p = _global_params
 
+    # VF2 raffinato con controlli geometrici
     success, mapping, score, _ = match_subgraph(
         subG_A, subG_B,
         p['M3_A'], p['M3_B'],
         p['M_scav_A'], p['M_scav_B'],
-        cost_threshold_rel=p['cost_thr'],
-        max_ridge_diff=p['max_ridge'],
-        angle_tolerance_degrees=p['ang_tol'],
-        max_edge_length_ratio=p['edge_ratio']
+        angle_tolerance_degrees=p.get('ang_tol', 30),
+        max_edge_length_ratio=p.get('edge_ratio', 3.0)
     )
     if success and score > 0.0:
         return (i, j, mapping, score)
@@ -179,14 +178,14 @@ def worker_match_indices(indices):
 
 def main():
     # --- Creo cartelle di output ---
-    # timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    # OUTPUT_BASE_FOLDER = os.path.join(
-    #     "/Users/riccardotortorelli/Desktop/Tesi/Output",
-    #     f"Run_{timestamp}"
-    # )
-    # OUTPUT_FOLDER_GRAPHS        = os.path.join(OUTPUT_BASE_FOLDER, "Graphs")
-    # OUTPUT_FOLDER_SUBGRAPHS     = os.path.join(OUTPUT_BASE_FOLDER, "Subgraphs")
-    # OUTPUT_FOLDER_FINAL_GRAPHS  = os.path.join(OUTPUT_BASE_FOLDER, "Final_Graphs")
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    OUTPUT_BASE_FOLDER = os.path.join(
+        "/Users/riccardotortorelli/Desktop/Tesi/Output",
+        f"Run_{timestamp}"
+    )
+    OUTPUT_FOLDER_GRAPHS        = os.path.join(OUTPUT_BASE_FOLDER, "Graphs")
+    OUTPUT_FOLDER_SUBGRAPHS     = os.path.join(OUTPUT_BASE_FOLDER, "Subgraphs")
+    OUTPUT_FOLDER_FINAL_GRAPHS  = os.path.join(OUTPUT_BASE_FOLDER, "Final_Graphs")
     output_folder = os.environ.get("OUTPUT_FOLDER", "./output")
     logger_csv_filename = os.environ.get("LOGGER_CSV_FILENAME", "logger.csv")
     logger = StatsLogger(output_folder, csv_filename=logger_csv_filename)
@@ -405,47 +404,47 @@ def main():
     # ...existing code...
 
 
-    # for rank, (i, j, mapping, score) in enumerate(valid, start=1):
-    #     print(f"{rank}. A#{i} vs B#{j} → score {score:.4f}")
+    for rank, (i, j, mapping, score) in enumerate(valid, start=1):
+        print(f"{rank}. A#{i} vs B#{j} → score {score:.4f}")
 
-    # # --- Plot dei match --- 
-    # for rank, (i, j, mapping, score) in enumerate(valid, start=1):
-    #     subG_A = sub_subgraphs_A[i][1]
-    #     subG_B = sub_subgraphs_B[j][1]
+    # --- Plot dei match --- 
+    for rank, (i, j, mapping, score) in enumerate(valid, start=1):
+        subG_A = sub_subgraphs_A[i][1]
+        subG_B = sub_subgraphs_B[j][1]
 
-    #     logger.log(
-    #         idA=impronte[idxA],
-    #         idB=impronte[idxB],
-    #         relation="unknown",  # oppure da un dizionario, se hai pairs_metadata
-    #         subgraph_id=f"A{i}_B{j}_rank{rank}",
-    #         nodes_mapped=len(mapping),
-    #         score=score,
-    #         pair_details={
-    #             "mapping": mapping,
-    #             "subgraphA_nodes": list(subG_A.nodes),
-    #             "subgraphB_nodes": list(subG_B.nodes)
-    #         }
-    #     )
+        logger.log(
+            idA=impronte[idxA],
+            idB=impronte[idxB],
+            relation="unknown",  # oppure da un dizionario, se hai pairs_metadata
+            subgraph_id=f"A{i}_B{j}_rank{rank}",
+            nodes_mapped=len(mapping),
+            score=score,
+            pair_details={
+                "mapping": mapping,
+                "subgraphA_nodes": list(subG_A.nodes),
+                "subgraphB_nodes": list(subG_B.nodes)
+            }
+        )
 
 
-        # plot_mapping(
-        #     subG_A, subG_B,
-        #     G_A, G_B,
-        #     mapping,
-        #     OUTPUT_FOLDER_SUBGRAPHS,
-        #     f"match_{rank}_score_{score:.4f}_A({len(mapping)})_"
-        #     f"{sub_subgraphs_A[i][0]}_vs_B({len(mapping)})_{sub_subgraphs_B[j][0]}.png"
-        # )
+        plot_mapping(
+            subG_A, subG_B,
+            G_A, G_B,
+            mapping,
+            OUTPUT_FOLDER_SUBGRAPHS,
+            f"match_{rank}_score_{score:.4f}_A({len(mapping)})_"
+            f"{sub_subgraphs_A[i][0]}_vs_B({len(mapping)})_{sub_subgraphs_B[j][0]}.png"
+        )
 
-        # plot_match_with_context(
-        #     S_A, S_B,
-        #     subG_A, subG_B,
-        #     G_A, G_B,
-        #     mapping,
-        #     OUTPUT_FOLDER_SUBGRAPHS,
-        #     f"match_{rank}_WITH_CONTEXT.png",
-        #     score=score
-        # )
+        plot_match_with_context(
+            S_A, S_B,
+            subG_A, subG_B,
+            G_A, G_B,
+            mapping,
+            OUTPUT_FOLDER_SUBGRAPHS,
+            f"match_{rank}_WITH_CONTEXT.png",
+            score=score
+        )
 
         # plot_chirality_check(
         #     subG_A, subG_B,
@@ -458,17 +457,17 @@ def main():
     # --- Plot finale dei grafi completi con evidenziazione ---
     all_nodes_A = set().union(*(m[2].keys() for m in valid))
     all_nodes_B = set().union(*(m[2].values() for m in valid))
-    # plot_final_graphs(
-    #     G_A, G_B,
-    #     all_nodes_A, all_nodes_B,
-    #     centerA_coords=G_A.nodes[start_nodeA]['pos'],
-    #     radiusA=radiusA,
-    #     centerB_coords=G_B.nodes[closestB]['pos'],
-    #     radiusB=radiusB,
-    #     output_folder=OUTPUT_FOLDER_FINAL_GRAPHS,
-    #     filename=f"final_matches_{impronte[idxA]}_vs_{impronte[idxB]}.png",
-    #     all_matches=[{'mapping':m[2], 'score':m[3]} for m in valid]
-    # )
+    plot_final_graphs(
+        G_A, G_B,
+        all_nodes_A, all_nodes_B,
+        centerA_coords=G_A.nodes[start_nodeA]['pos'],
+        radiusA=radiusA,
+        centerB_coords=G_B.nodes[closestB]['pos'],
+        radiusB=radiusB,
+        output_folder=OUTPUT_FOLDER_FINAL_GRAPHS,
+        filename=f"final_matches_{impronte[idxA]}_vs_{impronte[idxB]}.png",
+        all_matches=[{'mapping':m[2], 'score':m[3]} for m in valid]
+    )
 
     print("\nElaborazione completata.")
     if cached_data is None:
