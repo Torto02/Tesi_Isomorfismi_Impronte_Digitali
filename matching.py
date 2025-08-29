@@ -104,29 +104,6 @@ class GraphMatcher:
             return 0.0
         return math.degrees(math.atan2(dy, dx)) % 360
     
-    def get_angle_orientation(self, angle: float) -> str:
-        """Determina l'orientamento dell'angolo rispetto agli assi."""
-        # Normalizza l'angolo in [0, 360)
-        angle = angle % 360
-        
-        # Classifica per quadranti e orientamento
-        if angle < 90:
-            return "NE"  # Nord-Est (primo quadrante)
-        elif angle < 180:
-            return "NW"  # Nord-Ovest (secondo quadrante)
-        elif angle < 270:
-            return "SW"  # Sud-Ovest (terzo quadrante)
-        else:
-            return "SE"  # Sud-Est (quarto quadrante)
-    
-    def check_orientation_consistency(self, angleA: float, angleB: float) -> bool:
-        """Verifica che due angoli abbiano orientamento coerente."""
-        orientationA = self.get_angle_orientation(angleA)
-        orientationB = self.get_angle_orientation(angleB)
-        
-        # Gli orientamenti devono essere nello stesso quadrante
-        return orientationA == orientationB
-    
     def find_path_via_added(self, G: nx.Graph, source: int, target: int) -> Optional[List[int]]:
         """Trova percorso minimo via nodi added."""
         visited = {source}
@@ -484,19 +461,14 @@ class GraphMatcher:
                     if patternA != patternB:
                         return False
                     
-                    # 2. Controllo angolazione - ridotto del 20% + orientamento
+                    # 2. Controllo angolazione - ridotto del 20%
                     angleA = self.get_angle_along_path(self.G_A, nodeA, coreA)
                     angleB = self.get_angle_along_path(self.G_B, nodeB, coreB)
                     
                     if angleA is not None and angleB is not None:
-                        # Controllo differenza angolare
                         angle_diff = min(abs(angleA - angleB), 360.0 - abs(angleA - angleB))
                         # Tolleranza ridotta del 20%: da 1.5x a 1.2x
                         if angle_diff > self.angle_tolerance * 1.2:
-                            return False
-                        
-                        # Controllo orientamento - deve essere coerente
-                        if not self.check_orientation_consistency(angleA, angleB):
                             return False
                     
                     # 3. Controllo lunghezza percorso - mantenuto 1.5x
