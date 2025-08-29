@@ -10,7 +10,8 @@ class GraphMatcher:
     
     def __init__(self, G_A: nx.Graph, G_B: nx.Graph, M3_A, M3_B, 
                  M_scav_A, M_scav_B, angle_tolerance: float = 30.0,
-                 max_ridge_diff: int = 1, max_edge_length_ratio: float = 3.0):
+                 max_ridge_diff: int = 1, max_edge_length_ratio: float = 3.0,
+                 chirality_threshold: Optional[float] = None):
         self.G_A = G_A
         self.G_B = G_B
         self.M3_A = M3_A
@@ -20,6 +21,7 @@ class GraphMatcher:
         self.angle_tolerance = angle_tolerance
         self.max_ridge_diff = max_ridge_diff
         self.max_edge_length_ratio = max_edge_length_ratio
+        self.chirality_threshold = chirality_threshold
         
         # Cache per ottimizzazione
         self._ensure_caches()
@@ -265,55 +267,139 @@ class GraphMatcher:
         return True
     
     def validate_chirality(self, mapping: Dict[int, int]) -> bool:
-        """Controllo chiralità migliorato con soglia di tolleranza."""
+        """Controllo chiralità ottimizzato con verifica efficiente delle terne di nodi."""
         def orientation(p1, p2, p3):
+            """Calcola orientazione usando prodotto vettoriale (cross product)."""
             return (p2[0] - p1[0]) * (p3[1] - p1[1]) - (p2[1] - p1[1]) * (p3[0] - p1[0])
+        
+        def distance_squared(p1, p2):
+            """Calcola distanza al quadrato per evitare sqrt."""
+            return (p1[0] - p2[0])**2 + (p1[1] - p2[1])**2
+        
+        # Cache per posizioni dei nodi per evitare accessi ripetuti
+        pos_cache_A = {}
+        pos_cache_B = {}
+        for nodeA, nodeB in mapping.items():
+            try:
+                pos_cache_A[nodeA] = self.G_A.nodes[nodeA]['pos']
+                pos_cache_B[nodeB] = self.G_B.nodes[nodeB]['pos']
+            except KeyError:
+                continue
         
         total_triplets = 0
         consistent_triplets = 0
+        tested_triplets = set()  # Evita duplicati
         
+        # Strategia 1: Test terne con nodo centrale
         for nodeA, nodeB in mapping.items():
+            if nodeA not in pos_cache_A or nodeB not in pos_cache_B:
+                continue
+                
             neighborsA = self.get_real_neighbors(self.G_A, nodeA)
-            mapped_neighbors = [n for n in neighborsA if n in mapping]
+            mapped_neighbors = [n for n in neighborsA if n in mapping and n in pos_cache_A]
             
             if len(mapped_neighbors) < 2:
                 continue
             
-            # Test tutte le triplette con nodeA al centro
+            # Test tutte le combinazioni di vicini
             for i in range(len(mapped_neighbors)):
                 for j in range(i + 1, len(mapped_neighbors)):
                     n1A, n2A = mapped_neighbors[i], mapped_neighbors[j]
                     n1B, n2B = mapping[n1A], mapping[n2A]
                     
-                    try:
-                        posA = self.G_A.nodes[nodeA]['pos']
-                        pos1A = self.G_A.nodes[n1A]['pos']
-                        pos2A = self.G_A.nodes[n2A]['pos']
-                        
-                        posB = self.G_B.nodes[nodeB]['pos']
-                        pos1B = self.G_B.nodes[n1B]['pos']
-                        pos2B = self.G_B.nodes[n2B]['pos']
-                        
-                        orient_A = orientation(posA, pos1A, pos2A)
-                        orient_B = orientation(posB, pos1B, pos2B)
-                        
-                        # Ignora casi degeneri
-                        if abs(orient_A) < 1e-9 or abs(orient_B) < 1e-9:
-                            continue
-                        
-                        total_triplets += 1
-                        if (orient_A > 0) == (orient_B > 0):  # Stesso segno
-                            consistent_triplets += 1
-                            
-                    except KeyError:
+                    if n1B not in pos_cache_B or n2B not in pos_cache_B:
                         continue
+                    
+                    # Evita test duplicati ordinando la terna
+                    triplet_key = tuple(sorted([nodeA, n1A, n2A]))
+                    if triplet_key in tested_triplets:
+                        continue
+                    tested_triplets.add(triplet_key)
+                    
+                    # Calcola orientazioni
+                    orient_A = orientation(pos_cache_A[nodeA], pos_cache_A[n1A], pos_cache_A[n2A])
+                    orient_B = orientation(pos_cache_B[nodeB], pos_cache_B[n1B], pos_cache_B[n2B])
+                    
+                    # Filtro casi degeneri con soglia più robusta
+                    if abs(orient_A) < 1e-6 or abs(orient_B) < 1e-6:
+                        continue
+                    
+                    total_triplets += 1
+                    if (orient_A > 0) == (orient_B > 0):  # Coerenza chirali
+                        consistent_triplets += 1
+        
+        # Strategia 2: Test terne non centralizzate per maggiore copertura
+        mapped_nodes = list(mapping.keys())
+        for i in range(len(mapped_nodes)):
+            for j in range(i + 1, len(mapped_nodes)):
+                for k in range(j + 1, len(mapped_nodes)):
+                    nodeA1, nodeA2, nodeA3 = mapped_nodes[i], mapped_nodes[j], mapped_nodes[k]
+                    nodeB1, nodeB2, nodeB3 = mapping[nodeA1], mapping[nodeA2], mapping[nodeA3]
+                    
+                    # Controlla se tutti i nodi hanno posizioni valide
+                    if not all(n in pos_cache_A for n in [nodeA1, nodeA2, nodeA3]):
+                        continue
+                    if not all(n in pos_cache_B for n in [nodeB1, nodeB2, nodeB3]):
+                        continue
+                    
+                    # Evita test duplicati
+                    triplet_key = tuple(sorted([nodeA1, nodeA2, nodeA3]))
+                    if triplet_key in tested_triplets:
+                        continue
+                    tested_triplets.add(triplet_key)
+                    
+                    # Filtra terne troppo piccole (potrebbero essere imprecise)
+                    min_dist_A = min(distance_squared(pos_cache_A[nodeA1], pos_cache_A[nodeA2]),
+                                   distance_squared(pos_cache_A[nodeA2], pos_cache_A[nodeA3]),
+                                   distance_squared(pos_cache_A[nodeA3], pos_cache_A[nodeA1]))
+                    if min_dist_A < 100:  # Soglia minima per evitare rumore
+                        continue
+                    
+                    # Test tutte e 3 le orientazioni possibili per robustezza
+                    orientations_A = [
+                        orientation(pos_cache_A[nodeA1], pos_cache_A[nodeA2], pos_cache_A[nodeA3]),
+                        orientation(pos_cache_A[nodeA2], pos_cache_A[nodeA3], pos_cache_A[nodeA1]),
+                        orientation(pos_cache_A[nodeA3], pos_cache_A[nodeA1], pos_cache_A[nodeA2])
+                    ]
+                    orientations_B = [
+                        orientation(pos_cache_B[nodeB1], pos_cache_B[nodeB2], pos_cache_B[nodeB3]),
+                        orientation(pos_cache_B[nodeB2], pos_cache_B[nodeB3], pos_cache_B[nodeB1]),
+                        orientation(pos_cache_B[nodeB3], pos_cache_B[nodeB1], pos_cache_B[nodeB2])
+                    ]
+                    
+                    valid_orientations = 0
+                    consistent_orientations = 0
+                    
+                    for orient_A, orient_B in zip(orientations_A, orientations_B):
+                        if abs(orient_A) < 1e-6 or abs(orient_B) < 1e-6:
+                            continue
+                        valid_orientations += 1
+                        if (orient_A > 0) == (orient_B > 0):
+                            consistent_orientations += 1
+                    
+                    if valid_orientations > 0:
+                        total_triplets += 1
+                        # Richiede che almeno 2/3 delle orientazioni siano consistenti
+                        if consistent_orientations >= max(1, valid_orientations * 2 // 3):
+                            consistent_triplets += 1
         
         if total_triplets == 0:
-            return True
+            return True  # Nessuna terna testabile, accetta mapping
         
-        # Richiede almeno 85% di coerenza chirali
+        # Soglia configurabile o dinamica basata sul numero di nodi
+        if self.chirality_threshold is not None:
+            threshold = self.chirality_threshold
+        else:
+            num_nodes = len(mapping)
+            if num_nodes <= 3:
+                threshold = 0.75  # Più permissivo per pochi nodi
+            elif num_nodes <= 5:
+                threshold = 0.80  # Gradualmente più rigoroso
+            else:
+                threshold = 0.85  # Standard per molti nodi
+        
         consistency_ratio = consistent_triplets / total_triplets
-        return consistency_ratio >= 0.85
+        return consistency_ratio >= threshold
     
     def partial_validation(self, mapping: Dict[int, int], nodeA: int, nodeB: int) -> bool:
         """Validazione rapida durante il backtracking."""
@@ -524,13 +610,19 @@ class GraphMatcher:
         iteration_count = [0]
         
         def vf2_recursive() -> bool:
-            """Ricorsione VF2 con limite di iterazioni."""
+            """Ricorsione VF2 con limite di iterazioni e controllo chiralità."""
             iteration_count[0] += 1
             if iteration_count[0] > max_iterations:
                 return False  # Timeout per efficienza
             
             if len(core_A) == len(nodes_A):
-                return True  # Matching completo trovato
+                # Controllo chiralità finale per validazione completa
+                return self.validate_chirality(core_A)
+            
+            # Controllo chiralità intermedio se abbiamo almeno 3 nodi mappati
+            if len(core_A) >= 3 and len(core_A) % 2 == 0:  # Ogni 2 nodi mappati
+                if not self.validate_chirality(core_A):
+                    return False  # Early termination per inconsistenza chirali
             
             # Early termination se troppi controlli falliti
             candidate_count = 0
@@ -661,10 +753,10 @@ class GraphMatcher:
 
 
 def match_subgraph(G_A: nx.Graph, G_B: nx.Graph, M3_A=None, M3_B=None, M_scav_A=None, M_scav_B=None, 
-                   angle_tolerance_degrees=30, max_edge_length_ratio=3.0, **kwargs):
+                   angle_tolerance_degrees=30, max_edge_length_ratio=3.0, chirality_threshold=None, **kwargs):
     """Interfaccia principale per il matching tra sottografi usando VF2 raffinato."""
     
-    # Crea matcher con parametri geometrici
+    # Crea matcher con parametri geometrici e controllo chiralità
     matcher = GraphMatcher(
         G_A, G_B, 
         M3_A if M3_A is not None else [], 
@@ -672,18 +764,23 @@ def match_subgraph(G_A: nx.Graph, G_B: nx.Graph, M3_A=None, M3_B=None, M_scav_A=
         M_scav_A if M_scav_A is not None else [], 
         M_scav_B if M_scav_B is not None else [],
         angle_tolerance=angle_tolerance_degrees, max_ridge_diff=1, 
-        max_edge_length_ratio=max_edge_length_ratio
+        max_edge_length_ratio=max_edge_length_ratio,
+        chirality_threshold=chirality_threshold
     )
     
     real_nodes_A = matcher.get_real_nodes(G_A)
     real_nodes_B = matcher.get_real_nodes(G_B)
     
-    # Usa solo VF2 per trovare isomorfismo - nessun altro controllo
+    # Usa VF2 per trovare isomorfismo
     mapping = matcher.vf2_match(real_nodes_A, real_nodes_B)
     if mapping is None:
         return False, {}, 0.0, {"reason": "no_isomorphism", "algorithm": "VF2"}
     
-    # Score semplice basato sul numero di nodi mappati
+    # Controllo chiralità ottimizzato con terne di nodi
+    if not matcher.validate_chirality(mapping):
+        return False, {}, 0.0, {"reason": "chirality_mismatch", "algorithm": "VF2+Chirality"}
+    
+    # Score basato sulla validazione chirali e sul numero di nodi mappati
     score = 1.0 if mapping else 0.0
     
     return True, mapping, score, {"validation": "passed", "nodes_mapped": len(mapping), "algorithm": "VF2"}
