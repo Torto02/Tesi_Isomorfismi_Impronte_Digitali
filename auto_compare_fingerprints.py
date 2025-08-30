@@ -1,5 +1,6 @@
 import os
 import subprocess
+import time
 
 # Path to the main script
 main_script_path = "/Users/riccardotortorelli/Desktop/Tesi/main_script.py"
@@ -22,8 +23,10 @@ if len(fingerprints) < 2:
     exit(1)
 
 # Loop through all other fingerprints using only the first one as A
+starttime = time.time()
+
 fingerprintA = fingerprints[0]
-for idxA in [18,19,22,23,24,25,26,27,28,29,30,31,32,33,34,35]:  # Esegui il ciclo per idxA = 1 e idxA = 2
+for idxA in [15,16,17,18,19,20,21,22,23,24,25]:  # Esegui il ciclo per idxA = 1 e idxA = 2
     fingerprintA = fingerprints[idxA]
     for idxB, fingerprintB in enumerate(fingerprints):
         if idxA == idxB:
@@ -47,3 +50,6 @@ for idxA in [18,19,22,23,24,25,26,27,28,29,30,31,32,33,34,35]:  # Esegui il cicl
             input=f"{idxA + 1}\n{idxB + 1}\n",
             text=True
         )
+endtime = time.time()
+total = endtime - starttime
+print(f"Start time: {starttime}, End time: {endtime}, Total time: {total} seconds")

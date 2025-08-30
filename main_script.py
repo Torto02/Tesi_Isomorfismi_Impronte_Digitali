@@ -37,8 +37,8 @@ MINUTIAE_SUBGRAPH_SIZE         = 6
 MIN_MATCH_NODES                = 6
 MATCHING_COST_THRESHOLD_REL    = 0.3
 MATCHING_MAX_RIDGE_DIFF        = 1
-MATCHING_ANGLE_TOLERANCE_DEGREES = 30
-MATCHING_MAX_EDGE_LENGTH_RATIO = 3.0
+MATCHING_ANGLE_TOLERANCE_DEGREES = 20
+MATCHING_MAX_EDGE_LENGTH_RATIO = 2.0
 
 # Variabili globali che i worker useranno
 _global_subA   = None
@@ -304,6 +304,19 @@ def main():
     print(f"B: {len(sub_subgraphs_B)} sottografi trovati in {elapsed_subgraphs_B:.2f}s")
 
     if not sub_subgraphs_A or not sub_subgraphs_B:
+        # Plot finale dei grafi completi con evidenziazione (anche se non ci sono match)
+        plot_final_graphs(
+        G_A, G_B,
+        set(), set(),
+        centerA_coords=G_A.nodes[start_nodeA]['pos'],
+        radiusA=radiusA,
+        centerB_coords=G_B.nodes[closestB]['pos'],
+        radiusB=radiusB,
+        output_folder=OUTPUT_FOLDER_FINAL_GRAPHS,
+        filename=f"final_matches_{impronte[idxA]}_vs_{impronte[idxB]}.png",
+        all_matches=[]
+        )   
+
         print("Nessun sotto-sottografo di dimensione richiesta, esco.")
         return
 
@@ -368,106 +381,110 @@ def main():
     # --- Ordino e stampo i match validi ---
     valid.sort(key=lambda x: x[3], reverse=True)
     print(f"Trovati {len(valid)} match validi:")
+# ...existing code...
 
     relation = calculate_relation(impronte[idxA], impronte[idxB])
 
-    if not valid:
-        # Nessun match trovato
-        logger.log(
-            idA=impronte[idxA],
-            idB=impronte[idxB],
-            relation=relation,
-            subgraph_id=None,
-            nodes_mapped=None,
-            score=None
-        )
+    if relation == "unknown":
+        print("Relazione tra le impronte non riconosciuta, match scartati.")
     else:
-        for rank, (i, j, mapping, score) in enumerate(valid, start=1):
-            print(f"{rank}. A#{i} vs B#{j} → score {score:.4f}")
-            subG_A = sub_subgraphs_A[i][1]
-            subG_B = sub_subgraphs_B[j][1]
-
+        if not valid:
+            # Nessun match trovato
             logger.log(
                 idA=impronte[idxA],
                 idB=impronte[idxB],
                 relation=relation,
-                subgraph_id=f"A{i}_B{j}_rank{rank}",
-                nodes_mapped=len(mapping),
-                score=score,
-                pair_details={
-                    "mapping": mapping,
-                    "subgraphA_nodes": list(subG_A.nodes),
-                    "subgraphB_nodes": list(subG_B.nodes)
-                }
+                subgraph_id=None,
+                nodes_mapped=None,
+                score=None
             )
+        else:
+            for rank, (i, j, mapping, score) in enumerate(valid, start=1):
+                print(f"{rank}. A#{i} vs B#{j} → score {score:.4f}")
+                subG_A = sub_subgraphs_A[i][1]
+                subG_B = sub_subgraphs_B[j][1]
 
-    # ...existing code...
+                logger.log(
+                    idA=impronte[idxA],
+                    idB=impronte[idxB],
+                    relation=relation,
+                    subgraph_id=f"A{i}_B{j}_rank{rank}",
+                    nodes_mapped=len(mapping),
+                    score=score,
+                    pair_details={
+                        "mapping": mapping,
+                        "subgraphA_nodes": list(subG_A.nodes),
+                        "subgraphB_nodes": list(subG_B.nodes)
+                    }
+                )
+
+# ...existing code...
 
 
     for rank, (i, j, mapping, score) in enumerate(valid, start=1):
         print(f"{rank}. A#{i} vs B#{j} → score {score:.4f}")
 
-    # --- Plot dei match --- 
-    for rank, (i, j, mapping, score) in enumerate(valid, start=1):
-        subG_A = sub_subgraphs_A[i][1]
-        subG_B = sub_subgraphs_B[j][1]
+    # # --- Plot dei match --- 
+    # for rank, (i, j, mapping, score) in enumerate(valid, start=1):
+    #     subG_A = sub_subgraphs_A[i][1]
+    #     subG_B = sub_subgraphs_B[j][1]
 
-        logger.log(
-            idA=impronte[idxA],
-            idB=impronte[idxB],
-            relation="unknown",  # oppure da un dizionario, se hai pairs_metadata
-            subgraph_id=f"A{i}_B{j}_rank{rank}",
-            nodes_mapped=len(mapping),
-            score=score,
-            pair_details={
-                "mapping": mapping,
-                "subgraphA_nodes": list(subG_A.nodes),
-                "subgraphB_nodes": list(subG_B.nodes)
-            }
-        )
+    #     logger.log(
+    #         idA=impronte[idxA],
+    #         idB=impronte[idxB],
+    #         relation="unknown",  # oppure da un dizionario, se hai pairs_metadata
+    #         subgraph_id=f"A{i}_B{j}_rank{rank}",
+    #         nodes_mapped=len(mapping),
+    #         score=score,
+    #         pair_details={
+    #             "mapping": mapping,
+    #             "subgraphA_nodes": list(subG_A.nodes),
+    #             "subgraphB_nodes": list(subG_B.nodes)
+    #         }
+    #     )
 
 
-        plot_mapping(
-            subG_A, subG_B,
-            G_A, G_B,
-            mapping,
-            OUTPUT_FOLDER_SUBGRAPHS,
-            f"match_{rank}_score_{score:.4f}_A({len(mapping)})_"
-            f"{sub_subgraphs_A[i][0]}_vs_B({len(mapping)})_{sub_subgraphs_B[j][0]}.png"
-        )
+    #     plot_mapping(
+    #         subG_A, subG_B,
+    #         G_A, G_B,
+    #         mapping,
+    #         OUTPUT_FOLDER_SUBGRAPHS,
+    #         f"match_{rank}_score_{score:.4f}_A({len(mapping)})_"
+    #         f"{sub_subgraphs_A[i][0]}_vs_B({len(mapping)})_{sub_subgraphs_B[j][0]}.png"
+    #     )
 
-        plot_match_with_context(
-            S_A, S_B,
-            subG_A, subG_B,
-            G_A, G_B,
-            mapping,
-            OUTPUT_FOLDER_SUBGRAPHS,
-            f"match_{rank}_WITH_CONTEXT.png",
-            score=score
-        )
+    #     plot_match_with_context(
+    #         S_A, S_B,
+    #         subG_A, subG_B,
+    #         G_A, G_B,
+    #         mapping,
+    #         OUTPUT_FOLDER_SUBGRAPHS,
+    #         f"match_{rank}_WITH_CONTEXT.png",
+    #         score=score
+    #     )
 
-        # plot_chirality_check(
-        #     subG_A, subG_B,
-        #     mapping,
-        #     OUTPUT_FOLDER_SUBGRAPHS,
-        #     f"match_{rank}_CHIRALITY_CHECK.png",
-        #     score=score
-        # )
+    #     # plot_chirality_check(
+    #     #     subG_A, subG_B,
+    #     #     mapping,
+    #     #     OUTPUT_FOLDER_SUBGRAPHS,
+    #     #     f"match_{rank}_CHIRALITY_CHECK.png",
+    #     #     score=score
+    #     # )
 
-    # --- Plot finale dei grafi completi con evidenziazione ---
-    all_nodes_A = set().union(*(m[2].keys() for m in valid))
-    all_nodes_B = set().union(*(m[2].values() for m in valid))
-    plot_final_graphs(
-        G_A, G_B,
-        all_nodes_A, all_nodes_B,
-        centerA_coords=G_A.nodes[start_nodeA]['pos'],
-        radiusA=radiusA,
-        centerB_coords=G_B.nodes[closestB]['pos'],
-        radiusB=radiusB,
-        output_folder=OUTPUT_FOLDER_FINAL_GRAPHS,
-        filename=f"final_matches_{impronte[idxA]}_vs_{impronte[idxB]}.png",
-        all_matches=[{'mapping':m[2], 'score':m[3]} for m in valid]
-    )
+    # # --- Plot finale dei grafi completi con evidenziazione ---
+    # all_nodes_A = set().union(*(m[2].keys() for m in valid))
+    # all_nodes_B = set().union(*(m[2].values() for m in valid))
+    # plot_final_graphs(
+    #     G_A, G_B,
+    #     all_nodes_A, all_nodes_B,
+    #     centerA_coords=G_A.nodes[start_nodeA]['pos'],
+    #     radiusA=radiusA,
+    #     centerB_coords=G_B.nodes[closestB]['pos'],
+    #     radiusB=radiusB,
+    #     output_folder=OUTPUT_FOLDER_FINAL_GRAPHS,
+    #     filename=f"final_matches_{impronte[idxA]}_vs_{impronte[idxB]}.png",
+    #     all_matches=[{'mapping':m[2], 'score':m[3]} for m in valid]
+    # )
 
     print("\nElaborazione completata.")
     if cached_data is None:

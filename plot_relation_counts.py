@@ -32,20 +32,19 @@ BASE_DIRS = [
     "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/23",
     "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/24",
     "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/25",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/26",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/27",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/28",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/29",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/30",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/31",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/32",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/33",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/34",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/35",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/60",
-    "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/61",
+    # "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/26",
+    # "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/27",
+    # "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/28",
+    # "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/29",
+    # "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/30",
+    # "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/31",
+    # "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/32",
+    # "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/33",
+    # "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/34",
+    # "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/35",
+    # "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/60",
+    # "/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/61",
 ]
-
 OUTPUT_DIR = "relations_comparisons"
 unique_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
 OUTPUT_SUBDIR = os.path.join(OUTPUT_DIR, unique_id)
@@ -95,6 +94,9 @@ files_with_relation = {}
 for path in csv_files:
     try:
         df = pd.read_csv(path)
+        
+        # Filtra le relazioni "unknown"
+        df = df[df["relation"] != "unknown"]
 
         # Conteggio dei match
         for rel in df["relation"]:
@@ -112,6 +114,9 @@ total_files_by_relation = {}
 for path in csv_files:
     try:
         df = pd.read_csv(path)
+        # Filtra le relazioni "unknown"
+        df = df[df["relation"] != "unknown"]
+        
         for rel in df["relation"].unique():
             total_files_by_relation[rel] = total_files_by_relation.get(rel, 0) + 1
     except:
@@ -130,6 +135,9 @@ scores_by_relation = {}
 for path in csv_files:
     try:
         df = pd.read_csv(path)
+        # Filtra le relazioni "unknown"
+        df = df[df["relation"] != "unknown"]
+        
         if "score" in df.columns and "relation" in df.columns:
             for rel in df["relation"].unique():
                 scores = df.loc[df["relation"] == rel, "score"]

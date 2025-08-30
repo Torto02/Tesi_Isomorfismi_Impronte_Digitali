@@ -386,17 +386,17 @@ class GraphMatcher:
         if total_triplets == 0:
             return True  # Nessuna terna testabile, accetta mapping
         
-        # Soglia configurabile o dinamica basata sul numero di nodi
+        # Soglie molto più rigorose per maggiore discriminazione
         if self.chirality_threshold is not None:
             threshold = self.chirality_threshold
         else:
             num_nodes = len(mapping)
             if num_nodes <= 3:
-                threshold = 0.75  # Più permissivo per pochi nodi
+                threshold = 1  # Più rigoroso anche per pochi nodi
             elif num_nodes <= 5:
-                threshold = 0.80  # Gradualmente più rigoroso
+                threshold = 1  # Molto rigoroso
             else:
-                threshold = 0.85  # Standard per molti nodi
+                threshold = 1  # Estremamente rigoroso per molti nodi
         
         consistency_ratio = consistent_triplets / total_triplets
         return consistency_ratio >= threshold
@@ -547,14 +547,14 @@ class GraphMatcher:
                     if patternA != patternB:
                         return False
                     
-                    # 2. Controllo angolazione - ridotto del 20%
+                    # 2. Controllo angolazione - MOLTO PIÙ RIGOROSO
                     angleA = self.get_angle_along_path(self.G_A, nodeA, coreA)
                     angleB = self.get_angle_along_path(self.G_B, nodeB, coreB)
                     
                     if angleA is not None and angleB is not None:
                         angle_diff = min(abs(angleA - angleB), 360.0 - abs(angleA - angleB))
-                        # Tolleranza ridotta del 20%: da 1.5x a 1.2x
-                        if angle_diff > self.angle_tolerance * 1.2:
+                        # Tolleranza bilanciata per matching graduato
+                        if angle_diff > self.angle_tolerance * 1.5:  # Moderatamente permissivo
                             return False
                     
                     # 3. Controllo lunghezza percorso - mantenuto 1.5x
@@ -616,13 +616,14 @@ class GraphMatcher:
                 return False  # Timeout per efficienza
             
             if len(core_A) == len(nodes_A):
-                # Controllo chiralità finale per validazione completa
-                return self.validate_chirality(core_A)
+                # Matching completo - procedi al calcolo score graduato
+                return True
             
             # Controllo chiralità intermedio se abbiamo almeno 3 nodi mappati
-            if len(core_A) >= 3 and len(core_A) % 2 == 0:  # Ogni 2 nodi mappati
-                if not self.validate_chirality(core_A):
-                    return False  # Early termination per inconsistenza chirali
+            # TEMPORANEAMENTE DISABILITATO per permettere score graduati
+            # if len(core_A) >= 3 and len(core_A) % 2 == 0:  # Ogni 2 nodi mappati
+            #     if not self.validate_chirality(core_A):
+            #         return False  # Early termination per inconsistenza chirali
             
             # Early termination se troppi controlli falliti
             candidate_count = 0
@@ -694,23 +695,178 @@ class GraphMatcher:
         return self.vf2_match(nodes_A, nodes_B)
     
     def compute_mapping_score(self, mapping: Dict[int, int]) -> float:
-        """Calcola score complessivo del mapping."""
+        """
+        Sistema di scoring graduato: parte da 1.0 e sottrae punteggio basandosi
+        sulle deviazioni dalle soglie ideali. Produce distribuzione uniforme 0-1.
+        
+        Approccio: Per ogni aspetto, calcola la deviazione dalla perfezione e
+        sottrae proporzionalmente al peso del criterio.
+        """
         if not mapping:
             return 0.0
         
         node2idx_A = self.G_A.graph['_node2idx']
         node2idx_B = self.G_B.graph['_node2idx']
         
-        total_score = 0.0
-        total_pairs = 0
-        
         nodes = list(mapping.keys())
-        for i in range(len(nodes)):
-            for j in range(i + 1, len(nodes)):
+        num_nodes = len(nodes)
+        
+        if num_nodes < 2:
+            return 0.95  # Singolo nodo - score alto ma non perfetto
+        
+        # INIZIAMO DA PUNTEGGIO PERFETTO
+        score = 1.0
+        
+        # ===========================================
+        # 1. CHIRALITÀ (peso: 30% = max penalizzazione 0.3)
+        # ===========================================
+        try:
+            # Calcola percentuale di coerenza chirali (da validate_chirality)
+            total_triplets = 0
+            consistent_triplets = 0
+            tested_triplets = set()
+            
+            def orientation(p1, p2, p3):
+                return (p2[0] - p1[0]) * (p3[1] - p1[1]) - (p2[1] - p1[1]) * (p3[0] - p1[0])
+            
+            # Cache posizioni
+            pos_cache_A = {}
+            pos_cache_B = {}
+            for nodeA, nodeB in mapping.items():
+                try:
+                    pos_cache_A[nodeA] = self.G_A.nodes[nodeA]['pos']
+                    pos_cache_B[nodeB] = self.G_B.nodes[nodeB]['pos']
+                except KeyError:
+                    continue
+            
+            # Calcola coerenza chirali per tutte le terne possibili
+            mapped_nodes = list(mapping.keys())
+            for i in range(len(mapped_nodes)):
+                for j in range(i + 1, len(mapped_nodes)):
+                    for k in range(j + 1, len(mapped_nodes)):
+                        nodeA1, nodeA2, nodeA3 = mapped_nodes[i], mapped_nodes[j], mapped_nodes[k]
+                        nodeB1, nodeB2, nodeB3 = mapping[nodeA1], mapping[nodeA2], mapping[nodeA3]
+                        
+                        if not all(n in pos_cache_A for n in [nodeA1, nodeA2, nodeA3]):
+                            continue
+                        if not all(n in pos_cache_B for n in [nodeB1, nodeB2, nodeB3]):
+                            continue
+                        
+                        triplet_key = tuple(sorted([nodeA1, nodeA2, nodeA3]))
+                        if triplet_key in tested_triplets:
+                            continue
+                        tested_triplets.add(triplet_key)
+                        
+                        orient_A = orientation(pos_cache_A[nodeA1], pos_cache_A[nodeA2], pos_cache_A[nodeA3])
+                        orient_B = orientation(pos_cache_B[nodeB1], pos_cache_B[nodeB2], pos_cache_B[nodeB3])
+                        
+                        if abs(orient_A) < 1e-6 or abs(orient_B) < 1e-6:
+                            continue
+                        
+                        total_triplets += 1
+                        if (orient_A > 0) == (orient_B > 0):
+                            consistent_triplets += 1
+            
+            if total_triplets > 0:
+                chirality_ratio = consistent_triplets / total_triplets
+                # Penalizzazione più calibrata: 100% coerenza = 0, 85% = penalizzazione piccola, 50% = massima
+                if chirality_ratio >= 0.95:
+                    chirality_penalty = 0.0
+                elif chirality_ratio >= 0.85:
+                    chirality_penalty = (0.95 - chirality_ratio) / 0.10 * 0.3  # Penalizzazione leggera
+                else:
+                    chirality_penalty = 0.3 + (0.85 - chirality_ratio) / 0.35 * 0.7  # Penalizzazione crescente
+                
+                score -= min(1.0, chirality_penalty) * 0.30  # 30% del peso totale
+            else:
+                score -= 0.15  # Penalizzazione media se non testabile
+                
+        except Exception:
+            score -= 0.15  # Penalizzazione media per errori
+        
+        # ===========================================
+        # 2. ANGOLI (peso: 25% = max penalizzazione 0.25)
+        # ===========================================
+        angle_penalties = []
+        all_angles_A = []
+        all_angles_B = []
+        
+        for i in range(num_nodes):
+            for j in range(i + 1, num_nodes):
                 nodeA1, nodeA2 = nodes[i], nodes[j]
                 nodeB1, nodeB2 = mapping[nodeA1], mapping[nodeA2]
                 
-                # Score distanza
+                try:
+                    angleA = self.get_angle_along_path(self.G_A, nodeA1, nodeA2)
+                    angleB = self.get_angle_along_path(self.G_B, nodeB1, nodeB2)
+                    
+                    if angleA is not None and angleB is not None:
+                        # Penalizzazione per differenza angolare più calibrata
+                        angle_diff = min(abs(angleA - angleB), 360.0 - abs(angleA - angleB))
+                        # Scala più realistica: 0° = 0, 15° = 0.2, 30° = 0.5, 45° = 0.8, 60° = 1.0
+                        if angle_diff <= 10:
+                            angle_penalty = 0.0
+                        elif angle_diff <= 20:
+                            angle_penalty = (angle_diff - 10) / 10 * 0.3
+                        elif angle_diff <= 40:
+                            angle_penalty = 0.3 + (angle_diff - 20) / 20 * 0.4
+                        else:
+                            angle_penalty = 0.7 + (min(angle_diff, 90) - 40) / 50 * 0.3
+                        
+                        angle_penalties.append(angle_penalty)
+                        
+                        all_angles_A.append(angleA)
+                        all_angles_B.append(angleB)
+                    else:
+                        angle_penalties.append(0.5)  # Penalizzazione media se non calcolabile
+                        
+                except (KeyError, TypeError):
+                    angle_penalties.append(0.5)
+        
+        # Penalizzazione diversità angolare
+        def calculate_diversity_penalty(angles):
+            if len(angles) < 2:
+                return 0.5  # Penalizzazione per pochi dati
+            
+            normalized = [a % 360 for a in angles]
+            normalized.sort()
+            
+            # Calcola distribuzione angolare
+            diffs = []
+            for i in range(len(normalized)):
+                next_i = (i + 1) % len(normalized)
+                diff = abs(normalized[next_i] - normalized[i])
+                if diff > 180:
+                    diff = 360 - diff
+                diffs.append(diff)
+            
+            # Penalizzazione per angoli troppo simili
+            similar_count = sum(1 for d in diffs if d < 20)  # Meno di 20° è "simile"
+            diversity_penalty = similar_count / len(diffs) if diffs else 0.5
+            
+            return diversity_penalty
+        
+        # Combina penalizzazioni angolari
+        avg_angle_penalty = sum(angle_penalties) / len(angle_penalties) if angle_penalties else 0.5
+        diversity_penalty_A = calculate_diversity_penalty(all_angles_A)
+        diversity_penalty_B = calculate_diversity_penalty(all_angles_B)
+        diversity_penalty = (diversity_penalty_A + diversity_penalty_B) / 2
+        
+        # Penalizzazione angoli finale: 70% similarità + 30% diversità
+        final_angle_penalty = 0.7 * avg_angle_penalty + 0.3 * diversity_penalty
+        score -= final_angle_penalty * 0.25
+        
+        # ===========================================
+        # 3. LUNGHEZZE ARCHI (peso: 20% = max penalizzazione 0.20)
+        # ===========================================
+        edge_penalties = []
+        edge_scale_ratios = []
+        
+        for i in range(num_nodes):
+            for j in range(i + 1, num_nodes):
+                nodeA1, nodeA2 = nodes[i], nodes[j]
+                nodeB1, nodeB2 = mapping[nodeA1], mapping[nodeA2]
+                
                 try:
                     idx_A1, idx_A2 = node2idx_A[nodeA1], node2idx_A[nodeA2]
                     idx_B1, idx_B2 = node2idx_B[nodeB1], node2idx_B[nodeB2]
@@ -719,41 +875,124 @@ class GraphMatcher:
                     dist_B = self.M3_B[idx_B1][idx_B2]
                     
                     if dist_A != float('inf') and dist_B != float('inf') and dist_A > 0 and dist_B > 0:
-                        ratio = min(dist_A, dist_B) / max(dist_A, dist_B)
-                        distance_score = ratio
+                        ratio = max(dist_A, dist_B) / min(dist_A, dist_B)
+                        edge_scale_ratios.append(ratio)
+                        
+                        # Penalizzazione più realistica: ratio 1.0-1.2 = 0, 1.5 = 0.2, 2.0 = 0.5, 3.0 = 0.8, 5.0+ = 1.0
+                        if ratio <= 1.2:
+                            edge_penalty = 0.0
+                        elif ratio <= 1.5:
+                            edge_penalty = (ratio - 1.2) / 0.3 * 0.2
+                        elif ratio <= 2.5:
+                            edge_penalty = 0.2 + (ratio - 1.5) / 1.0 * 0.4
+                        elif ratio <= 4.0:
+                            edge_penalty = 0.6 + (ratio - 2.5) / 1.5 * 0.3
+                        else:
+                            edge_penalty = 0.9 + min(0.1, (ratio - 4.0) / 6.0 * 0.1)
+                        
+                        edge_penalties.append(edge_penalty)
                     else:
-                        distance_score = 0.5
+                        edge_penalties.append(0.8)  # Alta penalizzazione per distanze infinite
+                        
                 except (IndexError, KeyError):
-                    distance_score = 0.5
+                    edge_penalties.append(0.5)
+        
+        # Penalizzazione coerenza scale globale
+        scale_consistency_penalty = 0.0
+        if edge_scale_ratios and len(edge_scale_ratios) > 1:
+            mean_ratio = sum(edge_scale_ratios) / len(edge_scale_ratios)
+            variance = sum((r - mean_ratio)**2 for r in edge_scale_ratios) / len(edge_scale_ratios)
+            # Penalizzazione per inconsistenza di scala
+            scale_consistency_penalty = min(1.0, variance / 2.0)
+        
+        avg_edge_penalty = sum(edge_penalties) / len(edge_penalties) if edge_penalties else 0.5
+        final_edge_penalty = 0.7 * avg_edge_penalty + 0.3 * scale_consistency_penalty
+        score -= final_edge_penalty * 0.20
+        
+        # ===========================================
+        # 4. TIPI DI CONNESSIONE (peso: 15% = max penalizzazione 0.15)
+        # ===========================================
+        connection_penalties = []
+        
+        for i in range(num_nodes):
+            for j in range(i + 1, num_nodes):
+                nodeA1, nodeA2 = nodes[i], nodes[j]
+                nodeB1, nodeB2 = mapping[nodeA1], mapping[nodeA2]
                 
-                # Score angolo
-                try:
-                    angleA = self.get_angle_along_path(self.G_A, nodeA1, nodeA2)
-                    angleB = self.get_angle_along_path(self.G_B, nodeB1, nodeB2)
-                    
-                    if angleA is not None and angleB is not None:
-                        angle_diff = min(abs(angleA - angleB), 360.0 - abs(angleA - angleB))
-                        angle_score = max(0.0, 1.0 - angle_diff / 180.0)
-                    else:
-                        angle_score = 0.5
-                except (KeyError, TypeError):
-                    angle_score = 0.5
-                
-                # Score pattern connessione
                 patternA = self.get_connection_pattern(self.G_A, nodeA1, nodeA2)
                 patternB = self.get_connection_pattern(self.G_B, nodeB1, nodeB2)
-                pattern_score = 1.0 if patternA == patternB else 0.3
                 
-                # Score complessivo della coppia (pesato)
-                pair_score = 0.4 * distance_score + 0.4 * angle_score + 0.2 * pattern_score
-                total_score += pair_score
-                total_pairs += 1
+                # Penalizzazione graduata per mismatch connessioni
+                if patternA == patternB:
+                    connection_penalties.append(0.0)  # Match perfetto
+                elif (patternA in ['direct', 'via_node'] and patternB in ['direct', 'via_node']):
+                    connection_penalties.append(0.3)  # Mismatch simile
+                elif patternA == 'none' or patternB == 'none':
+                    connection_penalties.append(0.7)  # Presenza vs assenza
+                else:
+                    connection_penalties.append(0.5)  # Altri mismatch
         
-        return total_score / total_pairs if total_pairs > 0 else 0.0
+        avg_connection_penalty = sum(connection_penalties) / len(connection_penalties) if connection_penalties else 0.5
+        score -= avg_connection_penalty * 0.15
+        
+        # ===========================================
+        # 5. TIPI NODI (peso: 7% = max penalizzazione 0.07)
+        # ===========================================
+        node_type_penalty = 0.0
+        for nodeA, nodeB in mapping.items():
+            typeA = self.G_A.nodes[nodeA].get('type')
+            typeB = self.G_B.nodes[nodeB].get('type')
+            if typeA != typeB:
+                node_type_penalty = 1.0  # Penalizzazione totale per incompatibilità
+                break
+        
+        score -= node_type_penalty * 0.07
+        
+        # ===========================================
+        # 6. COMPATTEZZA GEOMETRICA (peso: 3% = max penalizzazione 0.03)
+        # ===========================================
+        def calculate_compactness_penalty(graph, nodes_list):
+            if len(nodes_list) < 3:
+                return 0.3  # Penalizzazione moderata per pochi nodi
+            
+            positions = [graph.nodes[n]['pos'] for n in nodes_list if 'pos' in graph.nodes[n]]
+            if len(positions) < 3:
+                return 0.3
+            
+            # Calcola coefficiente di variazione delle distanze dal centroide
+            cx = sum(p[0] for p in positions) / len(positions)
+            cy = sum(p[1] for p in positions) / len(positions)
+            
+            distances = [math.sqrt((p[0] - cx)**2 + (p[1] - cy)**2) for p in positions]
+            
+            if len(distances) == 0:
+                return 0.3
+                
+            mean_dist = sum(distances) / len(distances)
+            if mean_dist == 0:
+                return 0.0  # Perfettamente compatto
+                
+            variance = sum((d - mean_dist)**2 for d in distances) / len(distances)
+            cv = math.sqrt(variance) / mean_dist if mean_dist > 0 else 1.0
+            
+            # Penalizzazione: CV 0 = 0, CV 1.0 = 1.0
+            return min(1.0, cv)
+        
+        compactness_penalty_A = calculate_compactness_penalty(self.G_A, nodes)
+        compactness_penalty_B = calculate_compactness_penalty(self.G_B, [mapping[n] for n in nodes])
+        avg_compactness_penalty = (compactness_penalty_A + compactness_penalty_B) / 2
+        
+        score -= avg_compactness_penalty * 0.03
+        
+        # ===========================================
+        # PUNTEGGIO FINALE CALIBRATO
+        # ===========================================
+        # Assicura distribuzione nell'intervallo [0, 1]
+        return max(0.0, min(1.0, score))
 
 
 def match_subgraph(G_A: nx.Graph, G_B: nx.Graph, M3_A=None, M3_B=None, M_scav_A=None, M_scav_B=None, 
-                   angle_tolerance_degrees=30, max_edge_length_ratio=3.0, chirality_threshold=None, **kwargs):
+                   angle_tolerance_degrees=30, max_edge_length_ratio=3.0, chirality_threshold=1.0, **kwargs):
     """Interfaccia principale per il matching tra sottografi usando VF2 raffinato."""
     
     # Crea matcher con parametri geometrici e controllo chiralità
@@ -776,14 +1015,25 @@ def match_subgraph(G_A: nx.Graph, G_B: nx.Graph, M3_A=None, M3_B=None, M_scav_A=
     if mapping is None:
         return False, {}, 0.0, {"reason": "no_isomorphism", "algorithm": "VF2"}
     
-    # Controllo chiralità ottimizzato con terne di nodi
-    if not matcher.validate_chirality(mapping):
-        return False, {}, 0.0, {"reason": "chirality_mismatch", "algorithm": "VF2+Chirality"}
+    # Controllo chiralità DISABILITATO per permettere scoring graduato
+    # Lo scoring includerà già la penalizzazione chirali graduata
+    # if not matcher.validate_chirality(mapping):
+    #     return False, {}, 0.0, {"reason": "chirality_mismatch", "algorithm": "VF2+Chirality"}
     
-    # Score basato sulla validazione chirali e sul numero di nodi mappati
-    score = 1.0 if mapping else 0.0
+    # Calcolo score avanzato con sistema di punteggio completo
+    score = matcher.compute_mapping_score(mapping)
     
-    return True, mapping, score, {"validation": "passed", "nodes_mapped": len(mapping), "algorithm": "VF2"}
+    # Filtro finale: elimina solo match con score estremamente basso
+    if score < 0.1:  # Soglia molto bassa per eliminare solo casi patologici
+        return False, {}, 0.0, {"reason": "score_too_low", "score": score, "algorithm": "VF2+GradualScoring"}
+    
+    return True, mapping, score, {
+        "validation": "passed", 
+        "nodes_mapped": len(mapping), 
+        "algorithm": "VF2+GradualPenaltyScoring",
+        "score_details": "Starting from 1.0, penalties: chirality:30%, angles:25%, edge_lengths:20%, connections:15%, node_types:7%, compactness:3%",
+        "scoring_approach": "Gradual penalties based on deviation from ideal thresholds for uniform 0-1 distribution"
+    }
 
 
 # Funzioni di compatibilità con il codice esistente
