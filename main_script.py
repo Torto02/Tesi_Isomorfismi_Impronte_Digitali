@@ -305,17 +305,17 @@ def main():
 
     if not sub_subgraphs_A or not sub_subgraphs_B:
         # Plot finale dei grafi completi con evidenziazione (anche se non ci sono match)
-        plot_final_graphs(
-        G_A, G_B,
-        set(), set(),
-        centerA_coords=G_A.nodes[start_nodeA]['pos'],
-        radiusA=radiusA,
-        centerB_coords=G_B.nodes[closestB]['pos'],
-        radiusB=radiusB,
-        output_folder=OUTPUT_FOLDER_FINAL_GRAPHS,
-        filename=f"final_matches_{impronte[idxA]}_vs_{impronte[idxB]}.png",
-        all_matches=[]
-        )   
+        # plot_final_graphs(
+        # G_A, G_B,
+        # set(), set(),
+        # centerA_coords=G_A.nodes[start_nodeA]['pos'],
+        # radiusA=radiusA,
+        # centerB_coords=G_B.nodes[closestB]['pos'],
+        # radiusB=radiusB,
+        # output_folder=OUTPUT_FOLDER_FINAL_GRAPHS,
+        # filename=f"final_matches_{impronte[idxA]}_vs_{impronte[idxB]}.png",
+        # all_matches=[]
+        # )   
 
         print("Nessun sotto-sottografo di dimensione richiesta, esco.")
         return

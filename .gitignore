@@ -7,3 +7,6 @@
 *.pyc
 *All_comparisons
 *Output
+*fingerprint_analysis_*
+*FingerprintCache*
+*single_analysis*
