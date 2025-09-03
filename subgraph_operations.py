@@ -373,7 +373,42 @@ def get_connected_subgraphs_of_minutiae_parallel(
                     continue
                 to_remove.append(v)
         kept = set(node_set) - set(to_remove)
-        final.append((tuple(sorted(kept)), S.subgraph(kept).copy()))
+        
+        # Controllo aggiuntivo: ogni componente connessa deve avere almeno 2 nodi reali
+        final_subgraph = S.subgraph(kept).copy()
+        final_real_nodes = [n for n in kept if not _is_added(S, n)]
+        
+        # Debug: stampiamo informazioni sul sottografo
+        print(f"Debug sottografo: nodi totali={len(kept)}, nodi reali={len(final_real_nodes)}")
+        print(f"Nodi reali: {final_real_nodes}")
+        
+        # Creiamo un grafo che include solo archi reali tra nodi reali
+        real_only_graph = nx.Graph()
+        real_only_graph.add_nodes_from(final_real_nodes)
+        for u, v, d in final_subgraph.edges(data=True):
+            # Aggiungiamo l'arco solo se entrambi i nodi sono reali E l'arco è reale
+            if (u in final_real_nodes and v in final_real_nodes and 
+                d.get("type") != "added"):
+                real_only_graph.add_edge(u, v)
+        
+        print(f"Archi reali tra nodi reali: {list(real_only_graph.edges())}")
+        
+        # Ottieni le componenti connesse considerando solo archi reali
+        components = list(nx.connected_components(real_only_graph))
+        print(f"Componenti connesse: {components}")
+        
+        # Verifica che ogni componente connessa abbia almeno 2 nodi reali
+        valid_subgraph = True
+        for component in components:
+            if len(component) < 2:
+                print(f"Componente troppo piccola: {component}")
+                valid_subgraph = False
+                break
+        
+        print(f"Sottografo valido: {valid_subgraph}\n")
+        
+        if valid_subgraph:
+            final.append((tuple(sorted(kept)), S.subgraph(kept).copy()))
 
     # deduplica vera e propria (stessa firma)
     return _deduplicate(S, final)
