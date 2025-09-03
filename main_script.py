@@ -31,8 +31,8 @@ BASE_FOLDER_IMPRONTE           = "/Users/riccardotortorelli/Desktop/Tesi/Archivi
 OUTPUT_FOLDER_MATRICES         = "/Users/riccardotortorelli/Desktop/Tesi/OutputMatrices"
 CACHE_FOLDER                   = "/Users/riccardotortorelli/Desktop/Tesi/FingerPrintCache"
 
-RADIUS_PERCENTAGE_A            = 0.1
-RADIUS_PERCENTAGE_B            = 0.1
+RADIUS_PERCENTAGE_A            = 0.09
+RADIUS_PERCENTAGE_B            = 0.09
 MINUTIAE_SUBGRAPH_SIZE         = 6
 MIN_MATCH_NODES                = 6
 MATCHING_COST_THRESHOLD_REL    = 0.3
@@ -55,28 +55,90 @@ def find_max_finite_distance(matrix):
                 max_dist = val
     return max_dist if max_dist > 0 else 100.0
 
-def find_most_central_minutia(graph, minutiae_nodes):
+def find_intermediate_zone_minutia(graph, minutiae_nodes, angle_start=0, angle_end=45, max_ridges=5):
     """
-    Trova la minuzia più centrale basandosi sulla posizione geometrica.
-    Calcola il centroide di tutte le minuzie e trova quella più vicina ad esso.
+    Trova minuzie in una zona intermedia tra centro e bordo con criteri specifici:
+    - Posizionate a metà distanza tra centro e bordo
+    - All'interno di un settore angolare specificato (es. 0-45 gradi)
+    - Limitate a un massimo di ridge paralleli
     
     Args:
         graph: Il grafo contenente le posizioni dei nodi
         minutiae_nodes: Lista dei nodi che rappresentano le minuzie
+        angle_start: Angolo iniziale del settore in gradi (default: 0)
+        angle_end: Angolo finale del settore in gradi (default: 45)
+        max_ridges: Massimo numero di ridge paralleli da considerare (default: 5)
         
     Returns:
-        Il nodo della minuzia più centrale
+        Il nodo della minuzia selezionata nella zona intermedia
     """
     if not minutiae_nodes:
         return None
     
-    # Calcola il centroide di tutte le minuzie
+    # Calcola il centroide e i bounds delle minuzie
     positions = [graph.nodes[node]['pos'] for node in minutiae_nodes]
     centroid_x = sum(pos[0] for pos in positions) / len(positions)
     centroid_y = sum(pos[1] for pos in positions) / len(positions)
     centroid = (centroid_x, centroid_y)
     
-    # Trova la minuzia più vicina al centroide
+    # Calcola raggio massimo (distanza dal centro al punto più lontano)
+    max_radius = max(math.dist(pos, centroid) for pos in positions)
+    
+    # Definisci la zona intermedia (tra 40% e 70% del raggio massimo)
+    inner_radius = 0.4 * max_radius
+    outer_radius = 0.7 * max_radius
+    
+    # Filtra minuzie nella zona intermedia
+    intermediate_candidates = []
+    for node in minutiae_nodes:
+        node_pos = graph.nodes[node]['pos']
+        distance = math.dist(node_pos, centroid)
+        
+        if inner_radius <= distance <= outer_radius:
+            # Calcola angolo rispetto al centroide (in gradi, 0-360)
+            angle = math.degrees(math.atan2(node_pos[1] - centroid_y, node_pos[0] - centroid_x))
+            if angle < 0:
+                angle += 360
+            
+            # Verifica se è nel settore angolare specificato
+            if angle_start <= angle <= angle_end:
+                intermediate_candidates.append((node, distance, angle))
+    
+    if not intermediate_candidates:
+        print(f"Nessuna minuzia trovata nella zona intermedia (settore {angle_start}-{angle_end}°)")
+        # Fallback: usa la minuzia più centrale tradizionale
+        return find_fallback_central_minutia(graph, minutiae_nodes)
+    
+    # Ordina per distanza dalla zona centrale della fascia intermedia
+    target_radius = (inner_radius + outer_radius) / 2
+    intermediate_candidates.sort(key=lambda x: abs(x[1] - target_radius))
+    
+    # Limita a max_ridges candidati
+    selected_candidates = intermediate_candidates[:max_ridges]
+    
+    # Seleziona il primo candidato (più vicino alla zona target)
+    selected_node, selected_distance, selected_angle = selected_candidates[0]
+    
+    print(f"Centroide calcolato: ({centroid_x:.2f}, {centroid_y:.2f})")
+    print(f"Zona intermedia: raggio {inner_radius:.2f} - {outer_radius:.2f}")
+    print(f"Settore angolare: {angle_start}° - {angle_end}°")
+    print(f"Minuzia selezionata: nodo {selected_node}")
+    print(f"  - Distanza dal centro: {selected_distance:.2f}")
+    print(f"  - Angolo: {selected_angle:.1f}°")
+    print(f"  - Candidati nella zona: {len(intermediate_candidates)}")
+    print(f"  - Candidati considerati: {len(selected_candidates)}")
+    
+    return selected_node
+
+def find_fallback_central_minutia(graph, minutiae_nodes):
+    """
+    Fallback: trova la minuzia più centrale (logica originale)
+    """
+    positions = [graph.nodes[node]['pos'] for node in minutiae_nodes]
+    centroid_x = sum(pos[0] for pos in positions) / len(positions)
+    centroid_y = sum(pos[1] for pos in positions) / len(positions)
+    centroid = (centroid_x, centroid_y)
+    
     min_distance = float('inf')
     most_central_node = None
     
@@ -88,9 +150,7 @@ def find_most_central_minutia(graph, minutiae_nodes):
             min_distance = distance
             most_central_node = node
     
-    print(f"Centroide calcolato: ({centroid_x:.2f}, {centroid_y:.2f})")
-    print(f"Minuzia più centrale: nodo {most_central_node} a distanza {min_distance:.2f} dal centroide")
-    
+    print(f"Fallback: minuzia centrale nodo {most_central_node} a distanza {min_distance:.2f}")
     return most_central_node
 
 def generate_cache_key(fingerprint_name, central_node, radius_percentage, subgraph_size):
@@ -231,9 +291,9 @@ def main():
     minutiaeA = sorted(n for n,d in G_A.nodes(data=True) if d.get('type') in ('ending','bifurcation'))
     print(f"\nTrovate {len(minutiaeA)} minuzie nell'impronta A")
     
-    # Selezione automatica della minuzia più centrale
-    start_nodeA = find_most_central_minutia(G_A, minutiaeA)
-    print(f"Minuzia A selezionata automaticamente: nodo {start_nodeA}")
+    # Selezione automatica della minuzia nella zona intermedia
+    start_nodeA = find_intermediate_zone_minutia(G_A, minutiaeA, angle_start=0, angle_end=45, max_ridges=5)
+    print(f"Minuzia A selezionata nella zona intermedia: nodo {start_nodeA}")
     
     # --- Verifica cache per impronta A ---
     cache_key = generate_cache_key(impronte[idxA], start_nodeA, RADIUS_PERCENTAGE_A, MINUTIAE_SUBGRAPH_SIZE)
@@ -424,44 +484,44 @@ def main():
     for rank, (i, j, mapping, score) in enumerate(valid, start=1):
         print(f"{rank}. A#{i} vs B#{j} → score {score:.4f}")
 
-    # # --- Plot dei match --- 
-    # for rank, (i, j, mapping, score) in enumerate(valid, start=1):
-    #     subG_A = sub_subgraphs_A[i][1]
-    #     subG_B = sub_subgraphs_B[j][1]
+    # --- Plot dei match --- 
+    for rank, (i, j, mapping, score) in enumerate(valid, start=1):
+        subG_A = sub_subgraphs_A[i][1]
+        subG_B = sub_subgraphs_B[j][1]
 
-    #     logger.log(
-    #         idA=impronte[idxA],
-    #         idB=impronte[idxB],
-    #         relation="unknown",  # oppure da un dizionario, se hai pairs_metadata
-    #         subgraph_id=f"A{i}_B{j}_rank{rank}",
-    #         nodes_mapped=len(mapping),
-    #         score=score,
-    #         pair_details={
-    #             "mapping": mapping,
-    #             "subgraphA_nodes": list(subG_A.nodes),
-    #             "subgraphB_nodes": list(subG_B.nodes)
-    #         }
-    #     )
+        logger.log(
+            idA=impronte[idxA],
+            idB=impronte[idxB],
+            relation="unknown",  # oppure da un dizionario, se hai pairs_metadata
+            subgraph_id=f"A{i}_B{j}_rank{rank}",
+            nodes_mapped=len(mapping),
+            score=score,
+            pair_details={
+                "mapping": mapping,
+                "subgraphA_nodes": list(subG_A.nodes),
+                "subgraphB_nodes": list(subG_B.nodes)
+            }
+        )
 
 
-    #     plot_mapping(
-    #         subG_A, subG_B,
-    #         G_A, G_B,
-    #         mapping,
-    #         OUTPUT_FOLDER_SUBGRAPHS,
-    #         f"match_{rank}_score_{score:.4f}_A({len(mapping)})_"
-    #         f"{sub_subgraphs_A[i][0]}_vs_B({len(mapping)})_{sub_subgraphs_B[j][0]}.png"
-    #     )
+        plot_mapping(
+            subG_A, subG_B,
+            G_A, G_B,
+            mapping,
+            OUTPUT_FOLDER_SUBGRAPHS,
+            f"match_{rank}_score_{score:.4f}_A({len(mapping)})_"
+            f"{sub_subgraphs_A[i][0]}_vs_B({len(mapping)})_{sub_subgraphs_B[j][0]}.png"
+        )
 
-    #     plot_match_with_context(
-    #         S_A, S_B,
-    #         subG_A, subG_B,
-    #         G_A, G_B,
-    #         mapping,
-    #         OUTPUT_FOLDER_SUBGRAPHS,
-    #         f"match_{rank}_WITH_CONTEXT.png",
-    #         score=score
-    #     )
+        plot_match_with_context(
+            S_A, S_B,
+            subG_A, subG_B,
+            G_A, G_B,
+            mapping,
+            OUTPUT_FOLDER_SUBGRAPHS,
+            f"match_{rank}_WITH_CONTEXT.png",
+            score=score
+        )
 
     #     # plot_chirality_check(
     #     #     subG_A, subG_B,
@@ -471,20 +531,20 @@ def main():
     #     #     score=score
     #     # )
 
-    # # --- Plot finale dei grafi completi con evidenziazione ---
-    # all_nodes_A = set().union(*(m[2].keys() for m in valid))
-    # all_nodes_B = set().union(*(m[2].values() for m in valid))
-    # plot_final_graphs(
-    #     G_A, G_B,
-    #     all_nodes_A, all_nodes_B,
-    #     centerA_coords=G_A.nodes[start_nodeA]['pos'],
-    #     radiusA=radiusA,
-    #     centerB_coords=G_B.nodes[closestB]['pos'],
-    #     radiusB=radiusB,
-    #     output_folder=OUTPUT_FOLDER_FINAL_GRAPHS,
-    #     filename=f"final_matches_{impronte[idxA]}_vs_{impronte[idxB]}.png",
-    #     all_matches=[{'mapping':m[2], 'score':m[3]} for m in valid]
-    # )
+    # --- Plot finale dei grafi completi con evidenziazione ---
+    all_nodes_A = set().union(*(m[2].keys() for m in valid))
+    all_nodes_B = set().union(*(m[2].values() for m in valid))
+    plot_final_graphs(
+        G_A, G_B,
+        all_nodes_A, all_nodes_B,
+        centerA_coords=G_A.nodes[start_nodeA]['pos'],
+        radiusA=radiusA,
+        centerB_coords=G_B.nodes[closestB]['pos'],
+        radiusB=radiusB,
+        output_folder=OUTPUT_FOLDER_FINAL_GRAPHS,
+        filename=f"final_matches_{impronte[idxA]}_vs_{impronte[idxB]}.png",
+        all_matches=[{'mapping':m[2], 'score':m[3]} for m in valid]
+    )
 
     print("\nElaborazione completata.")
     if cached_data is None:

@@ -373,8 +373,7 @@ def get_connected_subgraphs_of_minutiae_parallel(
                     continue
                 to_remove.append(v)
         kept = set(node_set) - set(to_remove)
-        if sum(1 for n in kept if not _is_added(S, n)) == size:
-            final.append((tuple(sorted(kept)), S.subgraph(kept).copy()))
+        final.append((tuple(sorted(kept)), S.subgraph(kept).copy()))
 
     # deduplica vera e propria (stessa firma)
     return _deduplicate(S, final)
