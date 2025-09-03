@@ -35,9 +35,9 @@ RADIUS_PERCENTAGE_A            = 0.09
 RADIUS_PERCENTAGE_B            = 0.09
 MINUTIAE_SUBGRAPH_SIZE         = 6
 MIN_MATCH_NODES                = 6
-MATCHING_COST_THRESHOLD_REL    = 0.5
+MATCHING_COST_THRESHOLD_REL    = 0.3
 MATCHING_MAX_RIDGE_DIFF        = 1
-MATCHING_ANGLE_TOLERANCE_DEGREES = 50
+MATCHING_ANGLE_TOLERANCE_DEGREES = 30
 MATCHING_MAX_EDGE_LENGTH_RATIO = 2.0
 
 # Variabili globali che i worker useranno
@@ -54,6 +54,173 @@ def find_max_finite_distance(matrix):
             if isinstance(val, (int, float)) and val != float('inf') and val > max_dist:
                 max_dist = val
     return max_dist if max_dist > 0 else 100.0
+
+def find_densest_zone_minutia(graph, minutiae_nodes, radius_factor=0.15):
+    """
+    Trova la minuzia nella zona più densa dell'impronta usando densità locale.
+    
+    Args:
+        graph: Il grafo contenente le posizioni dei nodi
+        minutiae_nodes: Lista dei nodi che rappresentano le minuzie
+        radius_factor: Fattore del raggio per calcolare densità locale (default: 0.15)
+        
+    Returns:
+        Il nodo della minuzia nella zona più densa
+    """
+    if not minutiae_nodes:
+        return None
+    
+    if len(minutiae_nodes) < 3:
+        # Con poche minuzie, usa quella più centrale
+        return find_fallback_central_minutia(graph, minutiae_nodes)
+    
+    positions = [graph.nodes[node]['pos'] for node in minutiae_nodes]
+    
+    # Calcola dimensione caratteristica dell'impronta
+    min_x = min(pos[0] for pos in positions)
+    max_x = max(pos[0] for pos in positions)
+    min_y = min(pos[1] for pos in positions)
+    max_y = max(pos[1] for pos in positions)
+    
+    characteristic_size = math.sqrt((max_x - min_x)**2 + (max_y - min_y)**2)
+    search_radius = radius_factor * characteristic_size
+    
+    # Calcola densità locale per ogni minuzia
+    density_scores = []
+    for i, node in enumerate(minutiae_nodes):
+        node_pos = positions[i]
+        
+        # Conta vicini entro il raggio di ricerca
+        neighbors_count = 0
+        for j, other_pos in enumerate(positions):
+            if i != j:
+                distance = math.dist(node_pos, other_pos)
+                if distance <= search_radius:
+                    neighbors_count += 1
+        
+        # Score di densità: numero di vicini diviso per area del cerchio
+        area = math.pi * search_radius**2
+        density = neighbors_count / area
+        
+        density_scores.append((node, density, neighbors_count, node_pos))
+    
+    # Ordina per densità decrescente
+    density_scores.sort(key=lambda x: x[1], reverse=True)
+    
+    # Prendi le top 3 zone più dense
+    top_candidates = density_scores[:3]
+    
+    # Tra le top candidate, scegli quella più centrale per stabilità
+    positions_top = [candidate[3] for candidate in top_candidates]
+    centroid_x = sum(pos[0] for pos in positions_top) / len(positions_top)
+    centroid_y = sum(pos[1] for pos in positions_top) / len(positions_top)
+    centroid = (centroid_x, centroid_y)
+    
+    # Seleziona la candidata più vicina al centroide delle top 3
+    best_candidate = min(top_candidates, key=lambda x: math.dist(x[3], centroid))
+    selected_node, density, neighbors, pos = best_candidate
+    
+    print(f"Zona più densa trovata:")
+    print(f"  - Minuzia selezionata: nodo {selected_node}")
+    print(f"  - Posizione: ({pos[0]:.2f}, {pos[1]:.2f})")
+    print(f"  - Densità: {density:.6f}")
+    print(f"  - Vicini entro raggio {search_radius:.2f}: {neighbors}")
+    print(f"  - Top 3 candidate considerate")
+    
+    return selected_node
+
+def find_corresponding_minutia_in_B(graph_A, graph_B, minutiae_A, minutiae_B, selected_A, M3_A, M3_B):
+    """
+    Trova la minuzia in B che meglio corrisponde alla minuzia selezionata in A,
+    basandosi sulla posizione relativa e densità locale simile.
+    
+    Args:
+        graph_A, graph_B: I grafi delle due impronte
+        minutiae_A, minutiae_B: Liste delle minuzie per entrambe le impronte  
+        selected_A: Nodo della minuzia selezionata in A
+        M3_A, M3_B: Matrici di distanza per entrambe le impronte
+        
+    Returns:
+        Il nodo della minuzia corrispondente in B
+    """
+    if not minutiae_B:
+        return None
+    
+    # Ottieni posizione e proprietà della minuzia selezionata in A
+    pos_A = graph_A.nodes[selected_A]['pos']
+    positions_A = [graph_A.nodes[node]['pos'] for node in minutiae_A]
+    positions_B = [graph_B.nodes[node]['pos'] for node in minutiae_B]
+    
+    # Calcola posizione relativa di selected_A rispetto al centroide di A
+    centroid_A = (
+        sum(pos[0] for pos in positions_A) / len(positions_A),
+        sum(pos[1] for pos in positions_A) / len(positions_A)
+    )
+    
+    centroid_B = (
+        sum(pos[0] for pos in positions_B) / len(positions_B),
+        sum(pos[1] for pos in positions_B) / len(positions_B)
+    )
+    
+    # Vettore relativo da centroide A alla minuzia selezionata
+    relative_vector = (pos_A[0] - centroid_A[0], pos_A[1] - centroid_A[1])
+    
+    # Calcola scala relativa tra le due impronte
+    size_A = max(math.dist(pos, centroid_A) for pos in positions_A)
+    size_B = max(math.dist(pos, centroid_B) for pos in positions_B)
+    scale_factor = size_B / size_A if size_A > 0 else 1.0
+    
+    # Posizione target in B (scalata)
+    target_pos_B = (
+        centroid_B[0] + relative_vector[0] * scale_factor,
+        centroid_B[1] + relative_vector[1] * scale_factor
+    )
+    
+    # Trova candidati in B vicini alla posizione target
+    candidates = []
+    for node_B in minutiae_B:
+        pos_B = graph_B.nodes[node_B]['pos']
+        distance_to_target = math.dist(pos_B, target_pos_B)
+        
+        # Calcola densità locale in B per questo nodo
+        search_radius = 0.15 * size_B  # Stesso fattore usato per A
+        neighbors_count = sum(
+            1 for other_node in minutiae_B
+            if other_node != node_B and 
+               math.dist(pos_B, graph_B.nodes[other_node]['pos']) <= search_radius
+        )
+        density_B = neighbors_count / (math.pi * search_radius**2) if search_radius > 0 else 0
+        
+        candidates.append((node_B, distance_to_target, density_B, pos_B))
+    
+    # Calcola densità di riferimento della minuzia selezionata in A
+    search_radius_A = 0.15 * size_A
+    neighbors_A = sum(
+        1 for other_node in minutiae_A
+        if other_node != selected_A and 
+           math.dist(pos_A, graph_A.nodes[other_node]['pos']) <= search_radius_A
+    )
+    density_A = neighbors_A / (math.pi * search_radius_A**2) if search_radius_A > 0 else 0
+    
+    # Score combinato: distanza dalla posizione target + differenza di densità
+    def combined_score(candidate):
+        node_B, dist, density_B, pos_B = candidate
+        distance_score = dist / size_B  # Normalizzato
+        density_diff = abs(density_A - density_B)
+        return distance_score + 0.5 * density_diff  # Peso 50% per densità
+    
+    # Seleziona il migliore candidato
+    best_candidate = min(candidates, key=combined_score)
+    selected_B, best_distance, best_density, best_pos = best_candidate
+    
+    print(f"Minuzia corrispondente trovata in B:")
+    print(f"  - Minuzia A selezionata: nodo {selected_A} a ({pos_A[0]:.2f}, {pos_A[1]:.2f})")
+    print(f"  - Minuzia B corrispondente: nodo {selected_B} a ({best_pos[0]:.2f}, {best_pos[1]:.2f})")
+    print(f"  - Distanza da posizione target: {best_distance:.2f}")
+    print(f"  - Densità A: {density_A:.6f}, Densità B: {best_density:.6f}")
+    print(f"  - Fattore di scala A->B: {scale_factor:.3f}")
+    
+    return selected_B
 
 def find_intermediate_zone_minutia(graph, minutiae_nodes, angle_start=0, angle_end=45, max_ridges=5):
     """
@@ -291,9 +458,9 @@ def main():
     minutiaeA = sorted(n for n,d in G_A.nodes(data=True) if d.get('type') in ('ending','bifurcation'))
     print(f"\nTrovate {len(minutiaeA)} minuzie nell'impronta A")
     
-    # Selezione automatica della minuzia nella zona intermedia
-    start_nodeA = find_intermediate_zone_minutia(G_A, minutiaeA, angle_start=0, angle_end=45, max_ridges=5)
-    print(f"Minuzia A selezionata nella zona intermedia: nodo {start_nodeA}")
+    # Selezione automatica della minuzia nella zona più densa
+    start_nodeA = find_densest_zone_minutia(G_A, minutiaeA)
+    print(f"Minuzia A selezionata nella zona più densa: nodo {start_nodeA}")
     
     # --- Verifica cache per impronta A ---
     cache_key = generate_cache_key(impronte[idxA], start_nodeA, RADIUS_PERCENTAGE_A, MINUTIAE_SUBGRAPH_SIZE)
@@ -339,14 +506,13 @@ def main():
     #     f"macro_subgraph_A_{impronte[idxA]}_nodo{start_nodeA}.png"
     # )
 
-    # --- Estrazione sottografo locale B (sempre necessario calcolare) ---
+    # --- Estrazione sottografo locale B (selezione intelligente) ---
     minutiaeB = sorted(n for n,d in G_B.nodes(data=True) if d.get('type') in ('ending','bifurcation'))
-    posA = G_A.nodes[start_nodeA]['pos']
-    closestB, min_dist = min(
-        ((n, math.dist(posA, G_B.nodes[n]['pos'])) for n in minutiaeB),
-        key=lambda x: x[1]
-    )
-    print(f"Minuzia B corrispondente più vicina: nodo {closestB} (distanza: {min_dist:.2f})")
+    print(f"Trovate {len(minutiaeB)} minuzie nell'impronta B")
+    
+    # Trova la minuzia corrispondente in B basata su posizione relativa e densità
+    closestB = find_corresponding_minutia_in_B(G_A, G_B, minutiaeA, minutiaeB, start_nodeA, M3_A, M3_B)
+    print(f"Minuzia B corrispondente selezionata: nodo {closestB}")
     
     radiusB = RADIUS_PERCENTAGE_B * find_max_finite_distance(M3_B)
     S_B = get_subgraph_within_radius(G_B, M3_B, closestB, radiusB)
@@ -481,47 +647,47 @@ def main():
 # ...existing code...
 
 
-    for rank, (i, j, mapping, score) in enumerate(valid, start=1):
-        print(f"{rank}. A#{i} vs B#{j} → score {score:.4f}")
+    # for rank, (i, j, mapping, score) in enumerate(valid, start=1):
+    #     print(f"{rank}. A#{i} vs B#{j} → score {score:.4f}")
 
-    # --- Plot dei match --- 
-    for rank, (i, j, mapping, score) in enumerate(valid, start=1):
-        subG_A = sub_subgraphs_A[i][1]
-        subG_B = sub_subgraphs_B[j][1]
+    # # --- Plot dei match --- 
+    # for rank, (i, j, mapping, score) in enumerate(valid, start=1):
+    #     subG_A = sub_subgraphs_A[i][1]
+    #     subG_B = sub_subgraphs_B[j][1]
 
-        logger.log(
-            idA=impronte[idxA],
-            idB=impronte[idxB],
-            relation="unknown",  # oppure da un dizionario, se hai pairs_metadata
-            subgraph_id=f"A{i}_B{j}_rank{rank}",
-            nodes_mapped=len(mapping),
-            score=score,
-            pair_details={
-                "mapping": mapping,
-                "subgraphA_nodes": list(subG_A.nodes),
-                "subgraphB_nodes": list(subG_B.nodes)
-            }
-        )
+    #     logger.log(
+    #         idA=impronte[idxA],
+    #         idB=impronte[idxB],
+    #         relation="unknown",  # oppure da un dizionario, se hai pairs_metadata
+    #         subgraph_id=f"A{i}_B{j}_rank{rank}",
+    #         nodes_mapped=len(mapping),
+    #         score=score,
+    #         pair_details={
+    #             "mapping": mapping,
+    #             "subgraphA_nodes": list(subG_A.nodes),
+    #             "subgraphB_nodes": list(subG_B.nodes)
+    #         }
+    #     )
 
 
-        plot_mapping(
-            subG_A, subG_B,
-            G_A, G_B,
-            mapping,
-            OUTPUT_FOLDER_SUBGRAPHS,
-            f"match_{rank}_score_{score:.4f}_A({len(mapping)})_"
-            f"{sub_subgraphs_A[i][0]}_vs_B({len(mapping)})_{sub_subgraphs_B[j][0]}.png"
-        )
+    #     plot_mapping(
+    #         subG_A, subG_B,
+    #         G_A, G_B,
+    #         mapping,
+    #         OUTPUT_FOLDER_SUBGRAPHS,
+    #         f"match_{rank}_score_{score:.4f}_A({len(mapping)})_"
+    #         f"{sub_subgraphs_A[i][0]}_vs_B({len(mapping)})_{sub_subgraphs_B[j][0]}.png"
+    #     )
 
-        plot_match_with_context(
-            S_A, S_B,
-            subG_A, subG_B,
-            G_A, G_B,
-            mapping,
-            OUTPUT_FOLDER_SUBGRAPHS,
-            f"match_{rank}_WITH_CONTEXT.png",
-            score=score
-        )
+    #     plot_match_with_context(
+    #         S_A, S_B,
+    #         subG_A, subG_B,
+    #         G_A, G_B,
+    #         mapping,
+    #         OUTPUT_FOLDER_SUBGRAPHS,
+    #         f"match_{rank}_WITH_CONTEXT.png",
+    #         score=score
+    #     )
 
     #     # plot_chirality_check(
     #     #     subG_A, subG_B,

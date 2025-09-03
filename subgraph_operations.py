@@ -378,10 +378,6 @@ def get_connected_subgraphs_of_minutiae_parallel(
         final_subgraph = S.subgraph(kept).copy()
         final_real_nodes = [n for n in kept if not _is_added(S, n)]
         
-        # Debug: stampiamo informazioni sul sottografo
-        print(f"Debug sottografo: nodi totali={len(kept)}, nodi reali={len(final_real_nodes)}")
-        print(f"Nodi reali: {final_real_nodes}")
-        
         # Creiamo un grafo che include solo archi reali tra nodi reali
         real_only_graph = nx.Graph()
         real_only_graph.add_nodes_from(final_real_nodes)
@@ -391,21 +387,15 @@ def get_connected_subgraphs_of_minutiae_parallel(
                 d.get("type") != "added"):
                 real_only_graph.add_edge(u, v)
         
-        print(f"Archi reali tra nodi reali: {list(real_only_graph.edges())}")
-        
         # Ottieni le componenti connesse considerando solo archi reali
         components = list(nx.connected_components(real_only_graph))
-        print(f"Componenti connesse: {components}")
         
         # Verifica che ogni componente connessa abbia almeno 2 nodi reali
         valid_subgraph = True
         for component in components:
             if len(component) < 2:
-                print(f"Componente troppo piccola: {component}")
                 valid_subgraph = False
                 break
-        
-        print(f"Sottografo valido: {valid_subgraph}\n")
         
         if valid_subgraph:
             final.append((tuple(sorted(kept)), S.subgraph(kept).copy()))
