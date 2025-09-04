@@ -26,7 +26,7 @@ if len(fingerprints) < 2:
 starttime = time.time()
 
 fingerprintA = fingerprints[0]
-for idxA in [0]:  # Esegui il ciclo per idxA = 1 e idxA = 2
+for idxA in [48,49,50,51,52,53,54,55,56,57,58]:  # Esegui il ciclo per idxA = 1 e idxA = 2
     fingerprintA = fingerprints[idxA]
     for idxB, fingerprintB in enumerate(fingerprints):
         if idxA == idxB:

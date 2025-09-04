@@ -700,17 +700,17 @@ def main():
     # --- Plot finale dei grafi completi con evidenziazione ---
     all_nodes_A = set().union(*(m[2].keys() for m in valid))
     all_nodes_B = set().union(*(m[2].values() for m in valid))
-    plot_final_graphs(
-        G_A, G_B,
-        all_nodes_A, all_nodes_B,
-        centerA_coords=G_A.nodes[start_nodeA]['pos'],
-        radiusA=radiusA,
-        centerB_coords=G_B.nodes[closestB]['pos'],
-        radiusB=radiusB,
-        output_folder=OUTPUT_FOLDER_FINAL_GRAPHS,
-        filename=f"final_matches_{impronte[idxA]}_vs_{impronte[idxB]}.png",
-        all_matches=[{'mapping':m[2], 'score':m[3]} for m in valid]
-    )
+    # plot_final_graphs(
+    #     G_A, G_B,
+    #     all_nodes_A, all_nodes_B,
+    #     centerA_coords=G_A.nodes[start_nodeA]['pos'],
+    #     radiusA=radiusA,
+    #     centerB_coords=G_B.nodes[closestB]['pos'],
+    #     radiusB=radiusB,
+    #     output_folder=OUTPUT_FOLDER_FINAL_GRAPHS,
+    #     filename=f"final_matches_{impronte[idxA]}_vs_{impronte[idxB]}.png",
+    #     all_matches=[{'mapping':m[2], 'score':m[3]} for m in valid]
+    # )
 
     print("\nElaborazione completata.")
     if cached_data is None:
