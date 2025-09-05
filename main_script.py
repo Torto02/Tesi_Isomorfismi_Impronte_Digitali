@@ -27,8 +27,8 @@ BASE_FOLDER_IMPRONTE           = "/Users/riccardotortorelli/Desktop/Tesi/Archivi
 OUTPUT_FOLDER_MATRICES         = "/Users/riccardotortorelli/Desktop/Tesi/OutputMatrices"
 CACHE_FOLDER                   = "/Users/riccardotortorelli/Desktop/Tesi/FingerPrintCache"
 
-RADIUS_PERCENTAGE_A            = 0.08
-RADIUS_PERCENTAGE_B            = 0.08
+RADIUS_PERCENTAGE_A            = 0.06
+RADIUS_PERCENTAGE_B            = 0.06
 MINUTIAE_SUBGRAPH_SIZE         = 6
 MIN_MATCH_NODES                = 6
 MATCHING_COST_THRESHOLD_REL    = 0.3
@@ -39,6 +39,9 @@ MATCHING_MAX_EDGE_LENGTH_RATIO = 2.0
 # Nuovi parametri per fattori di ricerca della densità (includili nella cache)
 DENSITY_RADIUS_FACTOR         = 0.1  # usato in find_densest_zone_minutia
 CANDIDATE_DENSITY_FACTOR      = 0.1   # usato in find_corresponding_minutia_in_B
+
+# Parametro per numero massimo di archi 'added' nei sottografi
+MAX_ADDED_EDGES               = 2    # Ampliato da 1 a 2 per trovare più pattern
 
 # Variabili globali che i worker useranno
 _global_subA   = None
@@ -425,7 +428,8 @@ def main():
         'edge_length_ratio': MATCHING_MAX_EDGE_LENGTH_RATIO,
         # aggiunti i fattori di densità e qualsiasi parametro rilevante per l'estrazione
         'density_radius_factor': DENSITY_RADIUS_FACTOR,
-        'candidate_density_factor': CANDIDATE_DENSITY_FACTOR
+        'candidate_density_factor': CANDIDATE_DENSITY_FACTOR,
+        'max_added_edges': MAX_ADDED_EDGES
     }
     
     cache_key = generate_cache_key(
@@ -453,7 +457,7 @@ def main():
         # Estrazione sotto-sottografi A
         print("Starting parallel search for subgraphs of size", MINUTIAE_SUBGRAPH_SIZE, "for fingerprint A...")
         t0 = time.time()
-        sub_subgraphs_A = get_connected_subgraphs_of_minutiae_parallel(S_A, size=MINUTIAE_SUBGRAPH_SIZE)
+        sub_subgraphs_A = get_connected_subgraphs_of_minutiae_parallel(S_A, size=MINUTIAE_SUBGRAPH_SIZE, max_added_edges=MAX_ADDED_EDGES)
         elapsed_subgraphs_A = time.time() - t0
         print(f"A: {len(sub_subgraphs_A)} sottografi trovati in {elapsed_subgraphs_A:.2f}s")
         
@@ -466,6 +470,7 @@ def main():
             'central_node': start_nodeA,
             'radius_percentage': RADIUS_PERCENTAGE_A,
             'subgraph_size': MINUTIAE_SUBGRAPH_SIZE,
+            'max_added_edges': MAX_ADDED_EDGES,
             'matching_params': matching_params,
             'timestamp': datetime.datetime.now().isoformat()
         }
@@ -497,7 +502,7 @@ def main():
     # --- Estrazione sotto-sottografi B ---
     print("Starting parallel search for subgraphs of size", MINUTIAE_SUBGRAPH_SIZE, "for fingerprint B...")
     t1 = time.time()
-    sub_subgraphs_B = get_connected_subgraphs_of_minutiae_parallel(S_B, size=MINUTIAE_SUBGRAPH_SIZE)
+    sub_subgraphs_B = get_connected_subgraphs_of_minutiae_parallel(S_B, size=MINUTIAE_SUBGRAPH_SIZE, max_added_edges=MAX_ADDED_EDGES)
     elapsed_subgraphs_B = time.time() - t1
     print(f"B: {len(sub_subgraphs_B)} sottografi trovati in {elapsed_subgraphs_B:.2f}s")
 
@@ -634,29 +639,29 @@ def main():
         subG_A = sub_subgraphs_A[i][1]
         subG_B = sub_subgraphs_B[j][1]
 
-        logger.log(
-            idA=impronte[idxA],
-            idB=impronte[idxB],
-            relation="unknown",  # oppure da un dizionario, se hai pairs_metadata
-            subgraph_id=f"A{i}_B{j}_rank{rank}",
-            nodes_mapped=len(mapping),
-            score=score,
-            pair_details={
-                "mapping": mapping,
-                "subgraphA_nodes": list(subG_A.nodes),
-                "subgraphB_nodes": list(subG_B.nodes)
-            }
-        )
+    #     logger.log(
+    #         idA=impronte[idxA],
+    #         idB=impronte[idxB],
+    #         relation="unknown",  # oppure da un dizionario, se hai pairs_metadata
+    #         subgraph_id=f"A{i}_B{j}_rank{rank}",
+    #         nodes_mapped=len(mapping),
+    #         score=score,
+    #         pair_details={
+    #             "mapping": mapping,
+    #             "subgraphA_nodes": list(subG_A.nodes),
+    #             "subgraphB_nodes": list(subG_B.nodes)
+    #         }
+    #     )
 
 
-        plot_mapping(
-            subG_A, subG_B,
-            G_A, G_B,
-            mapping,
-            OUTPUT_FOLDER_SUBGRAPHS,
-            f"match_{rank}_score_{score:.4f}_A({len(mapping)})_"
-            f"{sub_subgraphs_A[i][0]}_vs_B({len(mapping)})_{sub_subgraphs_B[j][0]}.png"
-        )
+    #     plot_mapping(
+    #         subG_A, subG_B,
+    #         G_A, G_B,
+    #         mapping,
+    #         OUTPUT_FOLDER_SUBGRAPHS,
+    #         f"match_{rank}_score_{score:.4f}_A({len(mapping)})_"
+    #         f"{sub_subgraphs_A[i][0]}_vs_B({len(mapping)})_{sub_subgraphs_B[j][0]}.png"
+    #     )
 
         plot_match_with_context(
             S_A, S_B,
@@ -679,17 +684,17 @@ def main():
     # --- Plot finale dei grafi completi con evidenziazione ---
     all_nodes_A = set().union(*(m[2].keys() for m in valid))
     all_nodes_B = set().union(*(m[2].values() for m in valid))
-    plot_final_graphs(
-        G_A, G_B,
-        all_nodes_A, all_nodes_B,
-        centerA_coords=G_A.nodes[start_nodeA]['pos'],
-        radiusA=radiusA,
-        centerB_coords=G_B.nodes[closestB]['pos'],
-        radiusB=radiusB,
-        output_folder=OUTPUT_FOLDER_FINAL_GRAPHS,
-        filename=f"final_matches_{impronte[idxA]}_vs_{impronte[idxB]}.png",
-        all_matches=[{'mapping':m[2], 'score':m[3]} for m in valid]
-    )
+    # plot_final_graphs(
+    #     G_A, G_B,
+    #     all_nodes_A, all_nodes_B,
+    #     centerA_coords=G_A.nodes[start_nodeA]['pos'],
+    #     radiusA=radiusA,
+    #     centerB_coords=G_B.nodes[closestB]['pos'],
+    #     radiusB=radiusB,
+    #     output_folder=OUTPUT_FOLDER_FINAL_GRAPHS,
+    #     filename=f"final_matches_{impronte[idxA]}_vs_{impronte[idxB]}.png",
+    #     all_matches=[{'mapping':m[2], 'score':m[3]} for m in valid]
+    # )
 
     print("\nElaborazione completata.")
     if cached_data is None:

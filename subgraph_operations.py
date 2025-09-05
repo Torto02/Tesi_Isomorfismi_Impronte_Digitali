@@ -102,7 +102,7 @@ def _expand_worker_bfs_optimized(args):
     """
     Versione BFS ottimizzata con early pruning migliorato e gestione memoria.
     """
-    start, S_nodes, S_edges, size = args
+    start, S_nodes, S_edges, size, max_added_edges = args
 
     S = nx.Graph()
     S.add_nodes_from(S_nodes)
@@ -142,7 +142,7 @@ def _expand_worker_bfs_optimized(args):
                 real_count = count_real(curr)
                 
                 # Early termination
-                if real_count > target_size or added_count > 1:
+                if real_count > target_size or added_count > max_added_edges:
                     continue
                     
                 # Solution found
@@ -167,7 +167,7 @@ def _expand_worker_bfs_optimized(args):
                     )
                     new_added_count = added_count + added_edges_between
                     
-                    if new_added_count > 1:
+                    if new_added_count > max_added_edges:
                         continue
                     
                     # Generate next state
@@ -203,6 +203,7 @@ def get_connected_subgraphs_of_minutiae_parallel(
     size: int = 6,
     processes: int | None = None,
     S_real: nx.Graph | None = None,
+    max_added_edges: int = 1,
 ):
     if not S.nodes():
         return []
@@ -226,7 +227,7 @@ def get_connected_subgraphs_of_minutiae_parallel(
 
     with Pool(processes=processes or cpu_count()) as pool:
         raw_sets = pool.map(
-            _expand_worker_bfs_optimized, [(start, S_nodes, S_edges, size) for start in all_nodes]
+            _expand_worker_bfs_optimized, [(start, S_nodes, S_edges, size, max_added_edges) for start in all_nodes]
         )
 
     candidate_sets = set().union(*raw_sets)
