@@ -121,11 +121,11 @@ def save_matrix_to_file(matrix, filename):
 def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
     """
     Carica una singola impronta da folder_path, costruisce G, calcola (o ricarica)
-    M1 (costo shortest path), M_scavalcamenti (conta 'added' su M1 path), M3 (euclidea).
-    Rimuove M2 e la vecchia M4.
+    M_scavalcamenti (conta 'added' nei percorsi), M3 (euclidea).
+    M1 matrix computation has been removed as it's no longer used.
 
     Ritorna:
-        tuple: (G, M1, M_scavalcamenti, M3) o (None, None, None, None) in caso di errore critico.
+        tuple: (G, None, M_scavalcamenti, M3) o (None, None, None, None) in caso di errore critico.
     """
     #! 1) Carica i file JSON
     nodes_file = os.path.join(folder_path, "nodes_graph.json")
@@ -140,10 +140,9 @@ def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
     matrices_folder = os.path.join(matrices_output_base_folder, impronta_nome)
 
     # Definisci i percorsi per le matrici necessarie
-    m1_path = os.path.join(matrices_folder, "M1.csv")
     m_scavalcamenti_path = os.path.join(matrices_folder, "M_scavalcamenti.csv") # Nuovo nome
     m3_path = os.path.join(matrices_folder, "M3.csv")
-    # m2_path e m4_path rimossi
+    # m1_path, m2_path e m4_path rimossi
 
     #! 2) --- Costruzione Grafo G ---
     G = nx.Graph()
@@ -195,26 +194,24 @@ def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
 
     if N == 0:
         print(f"Errore: Grafo vuoto per {impronta_nome}.")
-        return G, [], [], [] # Ritorna matrici vuote se il grafo è vuoto
+        return G, None, [], [] # Ritorna None per M1, matrici vuote per il resto se il grafo è vuoto
 
     #! 3) --- Caricamento o Calcolo Matrici ---
 
     # Prova a caricare le matrici esistenti
-    M1 = load_matrix_from_file(m1_path)
     M_scavalcamenti = load_matrix_from_file(m_scavalcamenti_path)
     M3 = load_matrix_from_file(m3_path)
 
     #! 4.A) Verifica se tutte le matrici necessarie sono state caricate con successo
-    if M1 is not None and M_scavalcamenti is not None and M3 is not None:
-         valid_dims = (len(M1) == N and len(M1[0]) == N and
-                       len(M_scavalcamenti) == N and len(M_scavalcamenti[0]) == N and
+    if M_scavalcamenti is not None and M3 is not None:
+         valid_dims = (len(M_scavalcamenti) == N and len(M_scavalcamenti[0]) == N and
                        len(M3) == N and len(M3[0]) == N)
          if valid_dims:
-             print(f"\nMatrici M1, M_scavalcamenti, M3 già esistenti e valide per {impronta_nome}, caricamento completato.")
-             return G, M1, M_scavalcamenti, M3
+             print(f"\nMatrici M_scavalcamenti, M3 già esistenti e valide per {impronta_nome}, caricamento completato.")
+             return G, None, M_scavalcamenti, M3
          else:
              print(f"\nDimensioni matrici caricate non valide per {impronta_nome}. Ricalcolo...")
-             M1, M_scavalcamenti, M3 = None, None, None 
+             M_scavalcamenti, M3 = None, None 
     else:
         print(f"\nUna o più matrici non trovate o non valide per {impronta_nome}. Ricalcolo...")
 
@@ -222,8 +219,8 @@ def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
     print(f"\nInizio calcolo matrici per {impronta_nome}...")
     os.makedirs(matrices_folder, exist_ok=True) # Crea la cartella se non esiste
 
-    # Funzione peso per M1 (shortest path cost)
-    def weight_function_m1(u, v, d):
+    # Funzione peso per calcolare i percorsi più brevi per M_scavalcamenti
+    def weight_function_shortest_path(u, v, d):
         # d è il dizionario attributi dell'arco G[u][v]
         arco_type = d.get('type') if isinstance(d, dict) else 'unknown'
         if arco_type == 'added':
@@ -238,9 +235,6 @@ def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
 
 
     #! 4.B.1) Inizializza matrici con valori di default
-    if M1 is None:
-        M1 = [[float('inf')] * N for _ in range(N)]
-        for i in range(N): M1[i][i] = 0.0
     if M_scavalcamenti is None:
         M_scavalcamenti = [[float('inf')] * N for _ in range(N)]
         for i in range(N): M_scavalcamenti[i][i] = 0 # Scavalcamenti su se stesso è 0
@@ -248,24 +242,20 @@ def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
         M3 = [[float('inf')] * N for _ in range(N)]
         for i in range(N): M3[i][i] = 0.0
 
-    #! 4.B.2) Calcolo M1 e M_scavalcamenti (usando Dijkstra)
-    print("Calcolo M1 (costo shortest path) e M_scavalcamenti (conta 'added')...")
+    #! 4.B.2) Calcolo M_scavalcamenti (usando Dijkstra per trovare percorsi più brevi)
+    print("Calcolo M_scavalcamenti (conta 'added' sui percorsi più brevi)...")
     # Itera usando gli ID dei nodi presenti nel grafo
     for node_start_id in node_list_for_matrix:
-        distances, paths = single_source_shortest_paths_and_costs(G, node_start_id, weight_function_m1)
+        distances, paths = single_source_shortest_paths_and_costs(G, node_start_id, weight_function_shortest_path)
 
         # Ottieni l'indice della matrice per il nodo di partenza
         idx_start = node_map.get(node_start_id)
         if idx_start is None: continue
 
-        # Popola le matrici per tutte le destinazioni raggiunte
+        # Popola M_scavalcamenti per tutte le destinazioni raggiunte
         for node_end_id, dist_val in distances.items():
             idx_end = node_map.get(node_end_id)
             if idx_end is None: continue # Salta se l'ID destinazione non ha indice
-
-            #! Popolamento di M1
-            M1[idx_start][idx_end] = dist_val
-
 
             #! Popolamento di M_scavalcamenti
             current_path = paths.get(node_end_id) # Ottieni il percorso corrispondente
@@ -273,7 +263,7 @@ def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
                 added_node_count = count_intermediate_added_nodes(G, current_path)
                 M_scavalcamenti[idx_start][idx_end] = added_node_count
             else:
-                # Se non c'è percorso, la distanza è inf, mettiamo inf anche per scavalcamenti
+                # Se non c'è percorso, mettiamo inf per scavalcamenti
                  M_scavalcamenti[idx_start][idx_end] = float('inf')
 
 
@@ -298,11 +288,10 @@ def load_fingerprint_and_compute(folder_path, matrices_output_base_folder):
 
     # --- Salvataggio Matrici Calcolate ---
     print("Salvataggio matrici calcolate...")
-    save_matrix_to_file(M1, m1_path)
     save_matrix_to_file(M_scavalcamenti, m_scavalcamenti_path)
     save_matrix_to_file(M3, m3_path)
-    print(f"M1, M_scavalcamenti, M3 salvate in: {matrices_folder}")
+    print(f"M_scavalcamenti, M3 salvate in: {matrices_folder}")
 
-    # Ritorna il grafo e le matrici calcolate/caricate
-    return G, M1, M_scavalcamenti, M3
+    # Ritorna il grafo e le matrici calcolate/caricate (M1 is None since it's no longer computed)
+    return G, None, M_scavalcamenti, M3
 

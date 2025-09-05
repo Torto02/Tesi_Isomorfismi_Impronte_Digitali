@@ -16,11 +16,9 @@ from subgraph_operations import (
 )
 from matching import match_subgraph
 from plotting import (
-    plot_and_save_subgraph,
     plot_mapping,
     plot_final_graphs,
-    plot_match_with_context#,
-    # plot_chirality_check
+    plot_match_with_context
 )
 from stats_logger import StatsLogger
 
@@ -87,15 +85,9 @@ def find_densest_zone_minutia(graph, minutiae_nodes, radius_factor=DENSITY_RADIU
     
     characteristic_size = math.sqrt((max_x - min_x)**2 + (max_y - min_y)**2)
     
-    # Prova raggi multipli per trovare quello che meglio discrimina le zone dense
-    test_radii = [0.1, 0.15, 0.2, 0.25, 0.3]
-    best_radius = radius_factor * characteristic_size
+    search_radius = radius_factor * characteristic_size
     
-    # Se vogliamo essere conservativi, usa il raggio originale
-    search_radius = best_radius
-    
-    # Ottieni posizioni di TUTTI i nodi del grafo per calcolare la vera densità
-    all_positions = [graph.nodes[node]['pos'] for node in graph.nodes()]
+    # Calcola densità considerando tutti i nodi del grafo
     
     # Calcola densità locale per ogni minuzia considerando tutti i nodi del grafo
     density_scores = []
@@ -234,84 +226,10 @@ def find_corresponding_minutia_in_B(graph_A, graph_B, minutiae_A, minutiae_B, se
     
     return selected_B
 
-def find_intermediate_zone_minutia(graph, minutiae_nodes, angle_start=0, angle_end=45, max_ridges=5):
-    """
-    Trova minuzie in una zona intermedia tra centro e bordo con criteri specifici:
-    - Posizionate a metà distanza tra centro e bordo
-    - All'interno di un settore angolare specificato (es. 0-45 gradi)
-    - Limitate a un massimo di ridge paralleli
-    
-    Args:
-        graph: Il grafo contenente le posizioni dei nodi
-        minutiae_nodes: Lista dei nodi che rappresentano le minuzie
-        angle_start: Angolo iniziale del settore in gradi (default: 0)
-        angle_end: Angolo finale del settore in gradi (default: 45)
-        max_ridges: Massimo numero di ridge paralleli da considerare (default: 5)
-        
-    Returns:
-        Il nodo della minuzia selezionata nella zona intermedia
-    """
-    if not minutiae_nodes:
-        return None
-    
-    # Calcola il centroide e i bounds delle minuzie
-    positions = [graph.nodes[node]['pos'] for node in minutiae_nodes]
-    centroid_x = sum(pos[0] for pos in positions) / len(positions)
-    centroid_y = sum(pos[1] for pos in positions) / len(positions)
-    centroid = (centroid_x, centroid_y)
-    
-    # Calcola raggio massimo (distanza dal centro al punto più lontano)
-    max_radius = max(math.dist(pos, centroid) for pos in positions)
-    
-    # Definisci la zona intermedia (tra 40% e 70% del raggio massimo)
-    inner_radius = 0.4 * max_radius
-    outer_radius = 0.7 * max_radius
-    
-    # Filtra minuzie nella zona intermedia
-    intermediate_candidates = []
-    for node in minutiae_nodes:
-        node_pos = graph.nodes[node]['pos']
-        distance = math.dist(node_pos, centroid)
-        
-        if inner_radius <= distance <= outer_radius:
-            # Calcola angolo rispetto al centroide (in gradi, 0-360)
-            angle = math.degrees(math.atan2(node_pos[1] - centroid_y, node_pos[0] - centroid_x))
-            if angle < 0:
-                angle += 360
-            
-            # Verifica se è nel settore angolare specificato
-            if angle_start <= angle <= angle_end:
-                intermediate_candidates.append((node, distance, angle))
-    
-    if not intermediate_candidates:
-        print(f"Nessuna minuzia trovata nella zona intermedia (settore {angle_start}-{angle_end}°)")
-        # Fallback: usa la minuzia più centrale tradizionale
-        return find_fallback_central_minutia(graph, minutiae_nodes)
-    
-    # Ordina per distanza dalla zona centrale della fascia intermedia
-    target_radius = (inner_radius + outer_radius) / 2
-    intermediate_candidates.sort(key=lambda x: abs(x[1] - target_radius))
-    
-    # Limita a max_ridges candidati
-    selected_candidates = intermediate_candidates[:max_ridges]
-    
-    # Seleziona il primo candidato (più vicino alla zona target)
-    selected_node, selected_distance, selected_angle = selected_candidates[0]
-    
-    print(f"Centroide calcolato: ({centroid_x:.2f}, {centroid_y:.2f})")
-    print(f"Zona intermedia: raggio {inner_radius:.2f} - {outer_radius:.2f}")
-    print(f"Settore angolare: {angle_start}° - {angle_end}°")
-    print(f"Minuzia selezionata: nodo {selected_node}")
-    print(f"  - Distanza dal centro: {selected_distance:.2f}")
-    print(f"  - Angolo: {selected_angle:.1f}°")
-    print(f"  - Candidati nella zona: {len(intermediate_candidates)}")
-    print(f"  - Candidati considerati: {len(selected_candidates)}")
-    
-    return selected_node
 
 def find_fallback_central_minutia(graph, minutiae_nodes):
     """
-    Fallback: trova la minuzia più centrale (logica originale)
+    Fallback: trova la minuzia più centrale (per casi con poche minuzie)
     """
     positions = [graph.nodes[node]['pos'] for node in minutiae_nodes]
     centroid_x = sum(pos[0] for pos in positions) / len(positions)
@@ -447,7 +365,6 @@ def main():
         "/Users/riccardotortorelli/Desktop/Tesi/Output",
         f"Run_{timestamp}"
     )
-    OUTPUT_FOLDER_GRAPHS        = os.path.join(OUTPUT_BASE_FOLDER, "Graphs")
     OUTPUT_FOLDER_SUBGRAPHS     = os.path.join(OUTPUT_BASE_FOLDER, "Subgraphs")
     OUTPUT_FOLDER_FINAL_GRAPHS  = os.path.join(OUTPUT_BASE_FOLDER, "Final_Graphs")
     output_folder = os.environ.get("OUTPUT_FOLDER", "./output")
@@ -481,13 +398,13 @@ def main():
     # --- Caricamento e calcolo matrici ---
     print("Calcolo impronta A …")
     start_time_A = time.time()
-    G_A, M1_A, M_scav_A, M3_A = load_fingerprint_and_compute(folder_A, OUTPUT_FOLDER_MATRICES)
+    G_A, _, M_scav_A, M3_A = load_fingerprint_and_compute(folder_A, OUTPUT_FOLDER_MATRICES)
     elapsed_A = time.time() - start_time_A
     print(f"Caricata Impronta A: {impronte[idxA]}, Nodi={G_A.number_of_nodes()}, Archi={G_A.number_of_edges()}, Tempo={elapsed_A:.2f}s")
     
     print("Calcolo impronta B …")
     start_time_B = time.time()
-    G_B, M1_B, M_scav_B, M3_B = load_fingerprint_and_compute(folder_B, OUTPUT_FOLDER_MATRICES)
+    G_B, _, M_scav_B, M3_B = load_fingerprint_and_compute(folder_B, OUTPUT_FOLDER_MATRICES)
     elapsed_B = time.time() - start_time_B
     print(f"Caricata Impronta B: {impronte[idxB]}, Nodi={G_B.number_of_nodes()}, Archi={G_B.number_of_edges()}, Tempo={elapsed_B:.2f}s")
 

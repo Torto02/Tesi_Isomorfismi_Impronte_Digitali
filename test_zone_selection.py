@@ -22,7 +22,7 @@ def test_zone_selection():
     print(f"Testing zone selection with: {test_folder}")
     
     try:
-        G, M1, M_scav, M3 = load_fingerprint_and_compute(test_folder, OUTPUT_FOLDER_MATRICES)
+        G, _, M_scav, M3 = load_fingerprint_and_compute(test_folder, OUTPUT_FOLDER_MATRICES)
         print(f"Loaded fingerprint: nodes={G.number_of_nodes()}, edges={G.number_of_edges()}")
         
         # Trova le minuzie
