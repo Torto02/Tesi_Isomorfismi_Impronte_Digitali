@@ -1,5 +1,3 @@
-
-
 #!/usr/bin/env python3
 import os
 import math
@@ -31,14 +29,18 @@ BASE_FOLDER_IMPRONTE           = "/Users/riccardotortorelli/Desktop/Tesi/Archivi
 OUTPUT_FOLDER_MATRICES         = "/Users/riccardotortorelli/Desktop/Tesi/OutputMatrices"
 CACHE_FOLDER                   = "/Users/riccardotortorelli/Desktop/Tesi/FingerPrintCache"
 
-RADIUS_PERCENTAGE_A            = 0.09
-RADIUS_PERCENTAGE_B            = 0.09
+RADIUS_PERCENTAGE_A            = 0.08
+RADIUS_PERCENTAGE_B            = 0.08
 MINUTIAE_SUBGRAPH_SIZE         = 6
 MIN_MATCH_NODES                = 6
 MATCHING_COST_THRESHOLD_REL    = 0.3
 MATCHING_MAX_RIDGE_DIFF        = 1
 MATCHING_ANGLE_TOLERANCE_DEGREES = 30
 MATCHING_MAX_EDGE_LENGTH_RATIO = 2.0
+
+# Nuovi parametri per fattori di ricerca della densità (includili nella cache)
+DENSITY_RADIUS_FACTOR         = 0.1  # usato in find_densest_zone_minutia
+CANDIDATE_DENSITY_FACTOR      = 0.1   # usato in find_corresponding_minutia_in_B
 
 # Variabili globali che i worker useranno
 _global_subA   = None
@@ -55,14 +57,15 @@ def find_max_finite_distance(matrix):
                 max_dist = val
     return max_dist if max_dist > 0 else 100.0
 
-def find_densest_zone_minutia(graph, minutiae_nodes, radius_factor=0.15):
+def find_densest_zone_minutia(graph, minutiae_nodes, radius_factor=DENSITY_RADIUS_FACTOR):
     """
     Trova la minuzia nella zona più densa dell'impronta usando densità locale.
+    Considera TUTTI i nodi del grafo (incluse le creste) per calcolare la vera densità.
     
     Args:
         graph: Il grafo contenente le posizioni dei nodi
         minutiae_nodes: Lista dei nodi che rappresentano le minuzie
-        radius_factor: Fattore del raggio per calcolare densità locale (default: 0.15)
+        radius_factor: Fattore del raggio per calcolare densità locale (default: 0.2)
         
     Returns:
         Il nodo della minuzia nella zona più densa
@@ -74,58 +77,67 @@ def find_densest_zone_minutia(graph, minutiae_nodes, radius_factor=0.15):
         # Con poche minuzie, usa quella più centrale
         return find_fallback_central_minutia(graph, minutiae_nodes)
     
-    positions = [graph.nodes[node]['pos'] for node in minutiae_nodes]
+    minutiae_positions = [graph.nodes[node]['pos'] for node in minutiae_nodes]
     
-    # Calcola dimensione caratteristica dell'impronta
-    min_x = min(pos[0] for pos in positions)
-    max_x = max(pos[0] for pos in positions)
-    min_y = min(pos[1] for pos in positions)
-    max_y = max(pos[1] for pos in positions)
+    # Calcola dimensione caratteristica dell'impronta basata sulle minuzie
+    min_x = min(pos[0] for pos in minutiae_positions)
+    max_x = max(pos[0] for pos in minutiae_positions)
+    min_y = min(pos[1] for pos in minutiae_positions)
+    max_y = max(pos[1] for pos in minutiae_positions)
     
     characteristic_size = math.sqrt((max_x - min_x)**2 + (max_y - min_y)**2)
-    search_radius = radius_factor * characteristic_size
     
-    # Calcola densità locale per ogni minuzia
+    # Prova raggi multipli per trovare quello che meglio discrimina le zone dense
+    test_radii = [0.1, 0.15, 0.2, 0.25, 0.3]
+    best_radius = radius_factor * characteristic_size
+    
+    # Se vogliamo essere conservativi, usa il raggio originale
+    search_radius = best_radius
+    
+    # Ottieni posizioni di TUTTI i nodi del grafo per calcolare la vera densità
+    all_positions = [graph.nodes[node]['pos'] for node in graph.nodes()]
+    
+    # Calcola densità locale per ogni minuzia considerando tutti i nodi del grafo
     density_scores = []
-    for i, node in enumerate(minutiae_nodes):
-        node_pos = positions[i]
+    for i, minutia_node in enumerate(minutiae_nodes):
+        minutia_pos = minutiae_positions[i]
         
-        # Conta vicini entro il raggio di ricerca
+        # Conta TUTTI i nodi del grafo entro il raggio di ricerca
         neighbors_count = 0
-        for j, other_pos in enumerate(positions):
-            if i != j:
-                distance = math.dist(node_pos, other_pos)
+        for other_node in graph.nodes():
+            if other_node != minutia_node:  # Escludi la minuzia stessa
+                other_pos = graph.nodes[other_node]['pos']
+                distance = math.dist(minutia_pos, other_pos)
                 if distance <= search_radius:
                     neighbors_count += 1
         
-        # Score di densità: numero di vicini diviso per area del cerchio
+        # Score di densità: numero di nodi vicini diviso per area del cerchio
         area = math.pi * search_radius**2
         density = neighbors_count / area
         
-        density_scores.append((node, density, neighbors_count, node_pos))
+        density_scores.append((minutia_node, density, neighbors_count, minutia_pos))
     
     # Ordina per densità decrescente
     density_scores.sort(key=lambda x: x[1], reverse=True)
     
-    # Prendi le top 3 zone più dense
-    top_candidates = density_scores[:3]
+    # DEBUG: Stampa tutte le densità per analisi
+    print(f"\n=== DEBUG: Analisi densità (raggio {search_radius:.2f}) ===")
+    print(f"Dimensione caratteristica: {characteristic_size:.2f}")
+    print(f"Fattore raggio: {radius_factor}")
+    print(f"Nodi totali nel grafo: {graph.number_of_nodes()}")
+    print(f"Minuzie totali: {len(minutiae_nodes)}")
+    print("\nDensità per ogni minuzia (ordinate per densità):")
+    for idx, (node, density, neighbors, pos) in enumerate(density_scores[:10]):  # Top 10
+        print(f"  {idx+1}. Nodo {node:>4} pos({pos[0]:>6.1f},{pos[1]:>6.1f}) → {neighbors:>4} nodi, densità {density:.8f}")
     
-    # Tra le top candidate, scegli quella più centrale per stabilità
-    positions_top = [candidate[3] for candidate in top_candidates]
-    centroid_x = sum(pos[0] for pos in positions_top) / len(positions_top)
-    centroid_y = sum(pos[1] for pos in positions_top) / len(positions_top)
-    centroid = (centroid_x, centroid_y)
+    # Prendi la minuzia con la densità più alta
+    selected_node, density, neighbors, pos = density_scores[0]
     
-    # Seleziona la candidata più vicina al centroide delle top 3
-    best_candidate = min(top_candidates, key=lambda x: math.dist(x[3], centroid))
-    selected_node, density, neighbors, pos = best_candidate
-    
-    print(f"Zona più densa trovata:")
-    print(f"  - Minuzia selezionata: nodo {selected_node}")
+    print(f"\nZona più densa selezionata:")
+    print(f"  - Minuzia: nodo {selected_node}")
     print(f"  - Posizione: ({pos[0]:.2f}, {pos[1]:.2f})")
-    print(f"  - Densità: {density:.6f}")
-    print(f"  - Vicini entro raggio {search_radius:.2f}: {neighbors}")
-    print(f"  - Top 3 candidate considerate")
+    print(f"  - Densità: {density:.8f} nodi/area")
+    print(f"  - Nodi entro raggio: {neighbors}/{graph.number_of_nodes()}")
     
     return selected_node
 
@@ -182,8 +194,8 @@ def find_corresponding_minutia_in_B(graph_A, graph_B, minutiae_A, minutiae_B, se
         pos_B = graph_B.nodes[node_B]['pos']
         distance_to_target = math.dist(pos_B, target_pos_B)
         
-        # Calcola densità locale in B per questo nodo
-        search_radius = 0.15 * size_B  # Stesso fattore usato per A
+        # Calcola densità locale in B per questo nodo (usa costante invece di 0.15)
+        search_radius = CANDIDATE_DENSITY_FACTOR * size_B
         neighbors_count = sum(
             1 for other_node in minutiae_B
             if other_node != node_B and 
@@ -194,7 +206,7 @@ def find_corresponding_minutia_in_B(graph_A, graph_B, minutiae_A, minutiae_B, se
         candidates.append((node_B, distance_to_target, density_B, pos_B))
     
     # Calcola densità di riferimento della minuzia selezionata in A
-    search_radius_A = 0.15 * size_A
+    search_radius_A = CANDIDATE_DENSITY_FACTOR * size_A
     neighbors_A = sum(
         1 for other_node in minutiae_A
         if other_node != selected_A and 
@@ -320,11 +332,36 @@ def find_fallback_central_minutia(graph, minutiae_nodes):
     print(f"Fallback: minuzia centrale nodo {most_central_node} a distanza {min_distance:.2f}")
     return most_central_node
 
-def generate_cache_key(fingerprint_name, central_node, radius_percentage, subgraph_size):
+def generate_cache_key(fingerprint_name, central_node, radius_percentage, subgraph_size, matching_params=None):
     """
     Genera una chiave univoca per la cache basata sui parametri dell'elaborazione.
+    Include tutti i criteri di matching per garantire l'invalidazione della cache
+    quando qualsiasi parametro viene modificato.
+    
+    Args:
+        fingerprint_name: Nome dell'impronta
+        central_node: Nodo centrale selezionato
+        radius_percentage: Percentuale del raggio usata
+        subgraph_size: Dimensione dei sottografi
+        matching_params: Dizionario con i parametri di matching aggiuntivi
+        
+    Returns:
+        Chiave MD5 hash basata su tutti i parametri
     """
-    key_string = f"{fingerprint_name}_{central_node}_{radius_percentage}_{subgraph_size}"
+    # Parametri base
+    key_parts = [
+        f"name={fingerprint_name}",
+        f"node={central_node}",
+        f"radius={radius_percentage}",
+        f"size={subgraph_size}"
+    ]
+    
+    # Aggiungi parametri di matching se forniti
+    if matching_params:
+        for key, value in sorted(matching_params.items()):
+            key_parts.append(f"{key}={value}")
+    
+    key_string = "_".join(key_parts)
     return hashlib.md5(key_string.encode()).hexdigest()
 
 def save_to_cache(cache_key, data, cache_folder):
@@ -463,7 +500,24 @@ def main():
     print(f"Minuzia A selezionata nella zona più densa: nodo {start_nodeA}")
     
     # --- Verifica cache per impronta A ---
-    cache_key = generate_cache_key(impronte[idxA], start_nodeA, RADIUS_PERCENTAGE_A, MINUTIAE_SUBGRAPH_SIZE)
+    # Crea un dizionario con tutti i parametri di matching per la chiave della cache
+    matching_params = {
+        'cost_threshold': MATCHING_COST_THRESHOLD_REL,
+        'max_ridge_diff': MATCHING_MAX_RIDGE_DIFF,
+        'angle_tolerance': MATCHING_ANGLE_TOLERANCE_DEGREES,
+        'edge_length_ratio': MATCHING_MAX_EDGE_LENGTH_RATIO,
+        # aggiunti i fattori di densità e qualsiasi parametro rilevante per l'estrazione
+        'density_radius_factor': DENSITY_RADIUS_FACTOR,
+        'candidate_density_factor': CANDIDATE_DENSITY_FACTOR
+    }
+    
+    cache_key = generate_cache_key(
+        impronte[idxA], 
+        start_nodeA, 
+        RADIUS_PERCENTAGE_A, 
+        MINUTIAE_SUBGRAPH_SIZE,
+        matching_params
+    )
     cached_data = load_from_cache(cache_key, CACHE_FOLDER)
     
     if cached_data is not None:
@@ -495,6 +549,7 @@ def main():
             'central_node': start_nodeA,
             'radius_percentage': RADIUS_PERCENTAGE_A,
             'subgraph_size': MINUTIAE_SUBGRAPH_SIZE,
+            'matching_params': matching_params,
             'timestamp': datetime.datetime.now().isoformat()
         }
         save_to_cache(cache_key, cache_data, CACHE_FOLDER)
@@ -569,7 +624,19 @@ def main():
     valid.sort(key=lambda x: x[3], reverse=True)
     print(f"Trovati {len(valid)} match validi:")
 
-    # ...existing code...
+    # The cache contains:
+    # - S_A: The local subgraph extracted around the central minutia within radiusA
+    # - sub_subgraphs_A: All connected subgraphs of minutiae of specified size from S_A
+    # - radiusA: The radius used for subgraph extraction (calculated from RADIUS_PERCENTAGE_A)
+    # - fingerprint_name: The name of the processed fingerprint
+    # - central_node: The node ID of the central minutia used as starting point
+    # - radius_percentage: The percentage used to calculate the radius
+    # - subgraph_size: The size of minutiae subgraphs that were extracted
+    # - timestamp: When the cache was created
+
+    # This caching mechanism saves significant computation time for frequently 
+    # processed fingerprints by storing the expensive subgraph extraction results.
+    # The key is based on fingerprint name, central node, radius percentage, and subgraph size.
 
     def calculate_relation(idA, idB):
         """
@@ -607,8 +674,6 @@ def main():
     # --- Ordino e stampo i match validi ---
     valid.sort(key=lambda x: x[3], reverse=True)
     print(f"Trovati {len(valid)} match validi:")
-# ...existing code...
-
     relation = calculate_relation(impronte[idxA], impronte[idxB])
 
     if relation == "unknown":
@@ -644,50 +709,47 @@ def main():
                     }
                 )
 
-# ...existing code...
+    for rank, (i, j, mapping, score) in enumerate(valid, start=1):
+        print(f"{rank}. A#{i} vs B#{j} → score {score:.4f}")
+
+    # --- Plot dei match --- 
+    for rank, (i, j, mapping, score) in enumerate(valid, start=1):
+        subG_A = sub_subgraphs_A[i][1]
+        subG_B = sub_subgraphs_B[j][1]
+
+        logger.log(
+            idA=impronte[idxA],
+            idB=impronte[idxB],
+            relation="unknown",  # oppure da un dizionario, se hai pairs_metadata
+            subgraph_id=f"A{i}_B{j}_rank{rank}",
+            nodes_mapped=len(mapping),
+            score=score,
+            pair_details={
+                "mapping": mapping,
+                "subgraphA_nodes": list(subG_A.nodes),
+                "subgraphB_nodes": list(subG_B.nodes)
+            }
+        )
 
 
-    # for rank, (i, j, mapping, score) in enumerate(valid, start=1):
-    #     print(f"{rank}. A#{i} vs B#{j} → score {score:.4f}")
+        plot_mapping(
+            subG_A, subG_B,
+            G_A, G_B,
+            mapping,
+            OUTPUT_FOLDER_SUBGRAPHS,
+            f"match_{rank}_score_{score:.4f}_A({len(mapping)})_"
+            f"{sub_subgraphs_A[i][0]}_vs_B({len(mapping)})_{sub_subgraphs_B[j][0]}.png"
+        )
 
-    # # --- Plot dei match --- 
-    # for rank, (i, j, mapping, score) in enumerate(valid, start=1):
-    #     subG_A = sub_subgraphs_A[i][1]
-    #     subG_B = sub_subgraphs_B[j][1]
-
-    #     logger.log(
-    #         idA=impronte[idxA],
-    #         idB=impronte[idxB],
-    #         relation="unknown",  # oppure da un dizionario, se hai pairs_metadata
-    #         subgraph_id=f"A{i}_B{j}_rank{rank}",
-    #         nodes_mapped=len(mapping),
-    #         score=score,
-    #         pair_details={
-    #             "mapping": mapping,
-    #             "subgraphA_nodes": list(subG_A.nodes),
-    #             "subgraphB_nodes": list(subG_B.nodes)
-    #         }
-    #     )
-
-
-    #     plot_mapping(
-    #         subG_A, subG_B,
-    #         G_A, G_B,
-    #         mapping,
-    #         OUTPUT_FOLDER_SUBGRAPHS,
-    #         f"match_{rank}_score_{score:.4f}_A({len(mapping)})_"
-    #         f"{sub_subgraphs_A[i][0]}_vs_B({len(mapping)})_{sub_subgraphs_B[j][0]}.png"
-    #     )
-
-    #     plot_match_with_context(
-    #         S_A, S_B,
-    #         subG_A, subG_B,
-    #         G_A, G_B,
-    #         mapping,
-    #         OUTPUT_FOLDER_SUBGRAPHS,
-    #         f"match_{rank}_WITH_CONTEXT.png",
-    #         score=score
-    #     )
+        plot_match_with_context(
+            S_A, S_B,
+            subG_A, subG_B,
+            G_A, G_B,
+            mapping,
+            OUTPUT_FOLDER_SUBGRAPHS,
+            f"match_{rank}_WITH_CONTEXT.png",
+            score=score
+        )
 
     #     # plot_chirality_check(
     #     #     subG_A, subG_B,
@@ -700,17 +762,17 @@ def main():
     # --- Plot finale dei grafi completi con evidenziazione ---
     all_nodes_A = set().union(*(m[2].keys() for m in valid))
     all_nodes_B = set().union(*(m[2].values() for m in valid))
-    # plot_final_graphs(
-    #     G_A, G_B,
-    #     all_nodes_A, all_nodes_B,
-    #     centerA_coords=G_A.nodes[start_nodeA]['pos'],
-    #     radiusA=radiusA,
-    #     centerB_coords=G_B.nodes[closestB]['pos'],
-    #     radiusB=radiusB,
-    #     output_folder=OUTPUT_FOLDER_FINAL_GRAPHS,
-    #     filename=f"final_matches_{impronte[idxA]}_vs_{impronte[idxB]}.png",
-    #     all_matches=[{'mapping':m[2], 'score':m[3]} for m in valid]
-    # )
+    plot_final_graphs(
+        G_A, G_B,
+        all_nodes_A, all_nodes_B,
+        centerA_coords=G_A.nodes[start_nodeA]['pos'],
+        radiusA=radiusA,
+        centerB_coords=G_B.nodes[closestB]['pos'],
+        radiusB=radiusB,
+        output_folder=OUTPUT_FOLDER_FINAL_GRAPHS,
+        filename=f"final_matches_{impronte[idxA]}_vs_{impronte[idxB]}.png",
+        all_matches=[{'mapping':m[2], 'score':m[3]} for m in valid]
+    )
 
     print("\nElaborazione completata.")
     if cached_data is None:
