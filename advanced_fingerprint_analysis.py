@@ -13,7 +13,7 @@ warnings.filterwarnings('ignore')
 class FingerprintAnalyzer:
     def __init__(self, base_dirs=None):
         if base_dirs is None:
-            self.base_dirs = [f"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/{i}" for i in range(59)]
+            self.base_dirs = [f"/Users/riccardotortorelli/Desktop/Tesi/All_comparisons/{i}" for i in range(85)]
         else:
             self.base_dirs = base_dirs
         

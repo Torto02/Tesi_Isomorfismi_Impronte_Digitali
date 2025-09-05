@@ -411,7 +411,6 @@ def main():
     elapsed_B = time.time() - start_time_B
     print(f"Caricata Impronta B: {impronte[idxB]}, Nodi={G_B.number_of_nodes()}, Archi={G_B.number_of_edges()}, Tempo={elapsed_B:.2f}s")
 
-    # --- Selezione automatica della minuzia più centrale per A ---
     minutiaeA = sorted(n for n,d in G_A.nodes(data=True) if d.get('type') in ('ending','bifurcation'))
     print(f"\nTrovate {len(minutiaeA)} minuzie nell'impronta A")
     
@@ -663,15 +662,15 @@ def main():
     #         f"{sub_subgraphs_A[i][0]}_vs_B({len(mapping)})_{sub_subgraphs_B[j][0]}.png"
     #     )
 
-        plot_match_with_context(
-            S_A, S_B,
-            subG_A, subG_B,
-            G_A, G_B,
-            mapping,
-            OUTPUT_FOLDER_SUBGRAPHS,
-            f"match_{rank}_WITH_CONTEXT.png",
-            score=score
-        )
+        # plot_match_with_context(
+        #     S_A, S_B,
+        #     subG_A, subG_B,
+        #     G_A, G_B,
+        #     mapping,
+        #     OUTPUT_FOLDER_SUBGRAPHS,
+        #     f"match_{rank}_WITH_CONTEXT.png",
+        #     score=score
+        # )
 
     #     # plot_chirality_check(
     #     #     subG_A, subG_B,
