@@ -18,6 +18,7 @@ import networkx as nx
 import numpy as np
 from multiprocessing import Pool, cpu_count
 from typing import Tuple, List, Set, FrozenSet, Dict
+from collections import deque
 
 # ---------------------------------------------------------------------------
 #  UTILITY GENERICHE
@@ -29,16 +30,18 @@ def _is_added(G: nx.Graph, n: int) -> bool:
 
 
 def _canonical_signature(G: nx.Graph, node_set: Set[int]) -> Tuple:
-    all_nodes = tuple(sorted(node_set))
-    all_edges = tuple(
+    # Consider only real nodes and real edges between them (ignore 'added' nodes/edges)
+    real_nodes = tuple(sorted(n for n in node_set if G.nodes[n].get("type") != "added"))
+    real_edges = tuple(
         sorted(
-            (
-                (min(u, v), max(u, v), G.edges[u, v].get("type", "real"))
-                for u, v in G.subgraph(node_set).edges()
-            )
+            (min(u, v), max(u, v))
+            for u, v in G.subgraph(node_set).edges()
+            if G.nodes[u].get("type") != "added"
+            and G.nodes[v].get("type") != "added"
+            and G.edges[u, v].get("type") != "added"
         )
     )
-    return all_nodes, all_edges
+    return real_nodes, real_edges
 
 
 def _deduplicate(
@@ -208,12 +211,9 @@ def get_connected_subgraphs_of_minutiae_parallel(
     if not S.nodes():
         return []
 
-    #! build di sub_G con tutti i nodi + gli archi solo reali 
-    if S_real is None:
-        S_real = build_S_real(S)
-
+    # Nota: S_real era costruito ma non usato nella versione precedente -> rimosso per semplicità
+    # Se in futuro serve, passarlo esplicitamente come argomento.
     S_nodes = list(S.nodes(data=True))
-    # Include all edges con i loro attributi, per poter utilizzare anche gli 'added'
     S_edges = [(u, v, d.copy()) for u, v, d in S.edges(data=True)]
     print(f"Starting parallel search for subgraphs of size {size}...")
     print(f"Number of nodes in S: {len(S_nodes)}")
@@ -222,7 +222,6 @@ def get_connected_subgraphs_of_minutiae_parallel(
 
     all_nodes = list(S.nodes())
 
-    # Use optimized BFS algorithm for subgraph enumeration
     print(f"Using optimized BFS algorithm for subgraph enumeration...")
 
     with Pool(processes=processes or cpu_count()) as pool:
@@ -238,42 +237,50 @@ def get_connected_subgraphs_of_minutiae_parallel(
         real_nodes = [n for n in node_set if not _is_added(S, n)]
         if len(real_nodes) < 2:
             continue
-        subG = S.subgraph(node_set).copy()
+
+        sub_nodes = set(node_set)
+
+        # Per ogni nodo 'added' proviamo a rimuoverlo senza fare copie: BFS che ignora il nodo
         to_remove = []
         for v in node_set:
             if _is_added(S, v):
-                Gm = subG.copy()
-                Gm.remove_node(v)
-                if not all(n in nx.node_connected_component(Gm, real_nodes[0]) for n in real_nodes):
-                    continue
-                to_remove.append(v)
-        kept = set(node_set) - set(to_remove)
-        
-        # Controllo aggiuntivo: ogni componente connessa deve avere almeno 2 nodi reali
-        final_subgraph = S.subgraph(kept).copy()
+                start = real_nodes[0]
+                visited = set([start])
+                q = deque([start])
+                while q:
+                    cur = q.popleft()
+                    for nbr in S.neighbors(cur):
+                        if nbr == v or nbr not in sub_nodes or nbr in visited:
+                            continue
+                        visited.add(nbr)
+                        q.append(nbr)
+                # Se tutti i reali sono raggiungibili senza 'v', allora 'v' è rimovibile
+                if all(r in visited for r in real_nodes):
+                    to_remove.append(v)
+
+        kept = sub_nodes - set(to_remove)
+
+        # Controllo aggiuntivo: ogni componente connessa (considerando solo archi reali tra nodi reali)
         final_real_nodes = [n for n in kept if not _is_added(S, n)]
-        
-        # Creiamo un grafo che include solo archi reali tra nodi reali
+        if len(final_real_nodes) < 2:
+            continue
+
+        # Creiamo il grafo finale (senza fare copie multiple)
+        final_subgraph = S.subgraph(kept)
+
+        # Costruiamo grafo che include solo archi reali tra nodi reali
         real_only_graph = nx.Graph()
         real_only_graph.add_nodes_from(final_real_nodes)
         for u, v, d in final_subgraph.edges(data=True):
-            # Aggiungiamo l'arco solo se entrambi i nodi sono reali E l'arco è reale
-            if (u in final_real_nodes and v in final_real_nodes and 
-                d.get("type") != "added"):
+            if (u in final_real_nodes and v in final_real_nodes and d.get("type") != "added"):
                 real_only_graph.add_edge(u, v)
-        
-        # Ottieni le componenti connesse considerando solo archi reali
-        components = list(nx.connected_components(real_only_graph))
-        
-        # Verifica che ogni componente connessa abbia almeno 2 nodi reali
-        valid_subgraph = True
-        for component in components:
-            if len(component) < 2:
-                valid_subgraph = False
-                break
-        
-        if valid_subgraph:
-            final.append((tuple(sorted(kept)), S.subgraph(kept).copy()))
 
-    # deduplica vera e propria (stessa firma)
+        components = list(nx.connected_components(real_only_graph))
+        valid_subgraph = all(len(component) >= 2 for component in components)
+
+        if valid_subgraph:
+            # Copia finale una sola volta
+            sg_copy = final_subgraph.copy()
+            final.append((tuple(sorted(kept)), sg_copy))
+
     return _deduplicate(S, final)
