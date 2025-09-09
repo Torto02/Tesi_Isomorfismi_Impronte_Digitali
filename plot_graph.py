@@ -40,7 +40,8 @@ def choose_impronte(impronte):
 
 def main():
     # Flag per mostrare o meno i nodi/archi "added"
-    SHOW_ADDED = True
+    SHOW_ADDED_NODES = False
+    SHOW_ADDED_EDGES = False
 
     # Percorso della cartella contenente le impronte
     folder_path = "/Users/riccardotortorelli/Desktop/Tesi/Archivio"
@@ -117,23 +118,29 @@ def main():
             'added': 'red'  # esplicito per gli archi added
         }
 
-        if not SHOW_ADDED:
-            nodes_to_draw = list(G.nodes())
-            pos_filtered = pos
-            node_colors = [node_color_map.get(G.nodes[n].get('type'), 'red') for n in G.nodes()]
-            edges_to_draw = [(u, v) for u, v, attr in G.edges(data=True)
-                            if attr.get('type') != 'added' and u in pos_filtered and v in pos_filtered]
-            edge_colors = [edge_color_map.get(attr.get('type'), 'red')
-                        for u, v, attr in G.edges(data=True)
-                        if attr.get('type') != 'added' and u in pos_filtered and v in pos_filtered]
+        if not SHOW_ADDED_NODES:
+            nodes_to_draw = [n for n in G.nodes() if G.nodes[n].get('type') != 'added']
+            pos_filtered = {n: pos[n] for n in nodes_to_draw}
+            node_colors = [node_color_map.get(G.nodes[n].get('type'), 'red') for n in nodes_to_draw]
         else:
             nodes_to_draw = list(G.nodes())
             pos_filtered = pos
             node_colors = [node_color_map.get(G.nodes[n].get('type'), 'red') for n in G.nodes()]
-            edges_to_draw = [(u, v) for u, v, attr in G.edges(data=True)]
-            edge_colors = [edge_color_map.get(attr.get('type'), 'red') for u, v, attr in G.edges(data=True)]
 
-        plt.figure(figsize=(15, 12))
+        if not SHOW_ADDED_EDGES:
+            edges_to_draw = [(u, v) for u, v, attr in G.edges(data=True)
+                             if attr.get('type') != 'added' and u in pos_filtered and v in pos_filtered]
+            edge_colors = [edge_color_map.get(attr.get('type'), 'red')
+                           for u, v, attr in G.edges(data=True)
+                           if attr.get('type') != 'added' and u in pos_filtered and v in pos_filtered]
+        else:
+            edges_to_draw = [(u, v) for u, v, attr in G.edges(data=True)
+                             if u in pos_filtered and v in pos_filtered]
+            edge_colors = [edge_color_map.get(attr.get('type'), 'red')
+                           for u, v, attr in G.edges(data=True)
+                           if u in pos_filtered and v in pos_filtered]
+
+        plt.figure(figsize=(18,18))
         nx.draw_networkx_nodes(G, pos_filtered, nodelist=nodes_to_draw, node_color=node_colors, node_size=2)
         nx.draw_networkx_edges(G, pos_filtered, edgelist=edges_to_draw, edge_color=edge_colors, width=0.3)
         nx.draw_networkx_labels(G, pos_filtered, labels={n: n for n in nodes_to_draw}, font_size=1, font_color='black')
