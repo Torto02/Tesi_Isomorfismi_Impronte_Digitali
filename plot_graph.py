@@ -127,22 +127,20 @@ def main():
             pos_filtered = pos
             node_colors = [node_color_map.get(G.nodes[n].get('type'), 'red') for n in G.nodes()]
 
+        # Correzione: filtra gli archi solo per tipo, non per nodi
         if not SHOW_ADDED_EDGES:
-            edges_to_draw = [(u, v) for u, v, attr in G.edges(data=True)
-                             if attr.get('type') != 'added' and u in pos_filtered and v in pos_filtered]
+            edges_to_draw = [(u, v) for u, v, data in G.edges(data=True) if data.get('type') != 'added']
             edge_colors = [edge_color_map.get(attr.get('type'), 'red')
                            for u, v, attr in G.edges(data=True)
-                           if attr.get('type') != 'added' and u in pos_filtered and v in pos_filtered]
+                           if attr.get('type') != 'added']
         else:
-            edges_to_draw = [(u, v) for u, v, attr in G.edges(data=True)
-                             if u in pos_filtered and v in pos_filtered]
+            edges_to_draw = list(G.edges())
             edge_colors = [edge_color_map.get(attr.get('type'), 'red')
-                           for u, v, attr in G.edges(data=True)
-                           if u in pos_filtered and v in pos_filtered]
+                           for u, v, attr in G.edges(data=True)]
 
         plt.figure(figsize=(18,18))
         nx.draw_networkx_nodes(G, pos_filtered, nodelist=nodes_to_draw, node_color=node_colors, node_size=2)
-        nx.draw_networkx_edges(G, pos_filtered, edgelist=edges_to_draw, edge_color=edge_colors, width=0.3)
+        nx.draw_networkx_edges(G, pos, edgelist=edges_to_draw, edge_color=edge_colors, width=0.3)
         nx.draw_networkx_labels(G, pos_filtered, labels={n: n for n in nodes_to_draw}, font_size=1, font_color='black')
 
         plt.axis('off')
