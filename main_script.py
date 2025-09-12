@@ -29,8 +29,8 @@ BASE_FOLDER_IMPRONTE           = "/Users/riccardotortorelli/Desktop/Tesi/Archivi
 OUTPUT_FOLDER_MATRICES         = "/Users/riccardotortorelli/Desktop/Tesi/OutputMatrices"
 CACHE_FOLDER                   = "/Users/riccardotortorelli/Desktop/Tesi/FingerPrintCache"
 
-RADIUS_PERCENTAGE_A            = 0.08
-RADIUS_PERCENTAGE_B            = 0.08
+RADIUS_PERCENTAGE_A            = 0.06
+RADIUS_PERCENTAGE_B            = 0.06
 MINUTIAE_SUBGRAPH_SIZE         = 6
 MIN_MATCH_NODES                = 6
 MATCHING_COST_THRESHOLD_REL    = 0.3
@@ -39,8 +39,8 @@ MATCHING_ANGLE_TOLERANCE_DEGREES = 30
 MATCHING_MAX_EDGE_LENGTH_RATIO = 2.0
 
 # Nuovi parametri per fattori di ricerca della densità (includili nella cache)
-DENSITY_RADIUS_FACTOR         = 0.1  # usato in find_densest_zone_minutia
-CANDIDATE_DENSITY_FACTOR      = 0.1   # usato in find_corresponding_minutia_in_B
+DENSITY_RADIUS_FACTOR         = 0.08  # usato in find_densest_zone_minutia
+CANDIDATE_DENSITY_FACTOR      = 0.08   # usato in find_corresponding_minutia_in_B
 
 # Variabili globali che i worker useranno
 _global_subA   = None
@@ -530,7 +530,13 @@ def main():
         print("Cache non trovata per impronta A, calcolo in corso...")
         
         # Calcolo sottografo locale A
+        # Invece di usare un parametro fisso
         radiusA = RADIUS_PERCENTAGE_A * find_max_finite_distance(M3_A)
+
+# Usa un raggio basato sulla densità effettiva
+# Ad esempio, imposta il raggio proporzionale all'estensione della zona densa
+        radius_density_factor = 1.2  # Fattore per includere l'intera zona densa con margine
+        radiusA = radius_density_factor * search_radius  # search_radius dalla funzione find_densest_zone_minutia
         S_A = get_subgraph_within_radius(G_A, M3_A, start_nodeA, radiusA)
         
         # Estrazione sotto-sottografi A
