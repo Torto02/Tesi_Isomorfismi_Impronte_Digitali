@@ -40,8 +40,8 @@ def choose_impronte(impronte):
 
 def main():
     # Flag per mostrare o meno i nodi/archi "added"
-    SHOW_ADDED_NODES = False
-    SHOW_ADDED_EDGES = False
+    SHOW_ADDED_NODES = True
+    SHOW_ADDED_EDGES = True
 
     # Percorso della cartella contenente le impronte
     folder_path = "/Users/riccardotortorelli/Desktop/Tesi/Archivio"
@@ -108,12 +108,12 @@ def main():
 
         node_color_map = {
             'ending': "#3fc700",
-            'bifurcation': "#0084f8",
+            'bifurcation': "blue",
             'border': 'purple',
             'added': "#db7800"
         }
         edge_color_map = {
-            'ridge': 'blue',
+            'ridge': 'darkgray',
             'border': 'purple',
             'added': 'red'  # esplicito per gli archi added
         }
@@ -139,8 +139,8 @@ def main():
                            for u, v, attr in G.edges(data=True)]
 
         plt.figure(figsize=(18,18))
-        nx.draw_networkx_nodes(G, pos_filtered, nodelist=nodes_to_draw, node_color=node_colors, node_size=2)
-        nx.draw_networkx_edges(G, pos, edgelist=edges_to_draw, edge_color=edge_colors, width=0.3)
+        nx.draw_networkx_nodes(G, pos_filtered, nodelist=nodes_to_draw, node_color=node_colors, node_size=8)
+        nx.draw_networkx_edges(G, pos, edgelist=edges_to_draw, edge_color=edge_colors, width=1.4)
         nx.draw_networkx_labels(G, pos_filtered, labels={n: n for n in nodes_to_draw}, font_size=1, font_color='black')
 
         plt.axis('off')
