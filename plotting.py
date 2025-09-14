@@ -358,11 +358,11 @@ def plot_match_with_context(macro_A, macro_B, sub_A, sub_B,
     real_nodes_macro_A = [n for n in macro_A.nodes() if macro_A.nodes[n].get("type") != "added"]
     nx.draw_networkx_nodes(macro_A, posA,
                            nodelist=real_nodes_macro_A,
-                           node_size=4, node_color="#747474", ax=ax1)
+                           node_size=6, node_color="#969696", ax=ax1)
     nx.draw_networkx_edges(macro_A, posA,
                            edgelist=[e for e in macro_A.edges()
                                      if macro_A.edges[e].get("type") != "added"],
-                           width=0.4, edge_color="#747474", ax=ax1)
+                           width=0.5, edge_color="#969696", ax=ax1)
     
     # Nodi reali (non 'added') del sottografo
     real_nodes_A = [n for n in sub_A.nodes() if sub_A.nodes[n].get("type") != "added"]
@@ -370,20 +370,20 @@ def plot_match_with_context(macro_A, macro_B, sub_A, sub_B,
 
     nx.draw_networkx_nodes(sub_A, posA,
                            nodelist=real_nodes_A,
-                           node_size=6, node_color=node_colors_A, ax=ax1,
-                           edgecolors="black", linewidths=0.5)
+                           node_size=12, node_color=node_colors_A, ax=ax1,
+                           edgecolors="black", linewidths=0.6)
 
     # Archi reali (non 'added')
     real_edges_A = [e for e in sub_A.edges() if sub_A.edges[e].get("type") != "added"]
     nx.draw_networkx_edges(sub_A, posA,
                            edgelist=real_edges_A,
-                           width=0.6, edge_color="blue", ax=ax1)
+                           width=1.5, edge_color="#1658FF", ax=ax1)
     
     # Archi 'added' - mostrati tratteggiati
     added_edges_A = [e for e in sub_A.edges() if sub_A.edges[e].get("type") == "added"]
     nx.draw_networkx_edges(sub_A, posA,
                            edgelist=added_edges_A,
-                           width=0.5, edge_color="red", style="dashed",
+                           width=1, edge_color="#F41515", style="dashed",
                            alpha=0.7, ax=ax1)
 
     ax1.set_title("Macro Subgraph A")
@@ -395,31 +395,31 @@ def plot_match_with_context(macro_A, macro_B, sub_A, sub_B,
     real_nodes_macro_B = [n for n in macro_B.nodes() if macro_B.nodes[n].get("type") != "added"]
     nx.draw_networkx_nodes(macro_B, posB,
                            nodelist=real_nodes_macro_B,
-                           node_size=3, node_color="#747474", ax=ax2)
+                           node_size=6, node_color="#969696", ax=ax2)
     nx.draw_networkx_edges(macro_B, posB,
                            edgelist=[e for e in macro_B.edges()
                                      if macro_B.edges[e].get("type") != "added"],
-                           width=0.2, edge_color="#747474", ax=ax2)
+                           width=0.5, edge_color="#969696", ax=ax2)
 
     real_nodes_B = [n for n in sub_B.nodes() if sub_B.nodes[n].get("type") != "added"]
     node_colors_B = [NODE_TYPE_COLOR_MAP.get(sub_B.nodes[n].get('type', 'unknown')) for n in real_nodes_B]
 
     nx.draw_networkx_nodes(sub_B, posB,
                            nodelist=real_nodes_B,
-                           node_size=5, node_color=node_colors_B, ax=ax2,
-                           edgecolors="black", linewidths=0.5)
+                           node_size=12, node_color=node_colors_B, ax=ax2,
+                           edgecolors="black", linewidths=0.6)
 
     # Archi reali (non 'added')
     real_edges_B = [e for e in sub_B.edges() if sub_B.edges[e].get("type") != "added"]
     nx.draw_networkx_edges(sub_B, posB,
                            edgelist=real_edges_B,
-                           width=0.5, edge_color="blue", ax=ax2)
+                           width=1.5, edge_color="#1658FF", ax=ax2)
                            
     # Archi 'added' - mostrati tratteggiati
     added_edges_B = [e for e in sub_B.edges() if sub_B.edges[e].get("type") == "added"]
     nx.draw_networkx_edges(sub_B, posB,
                            edgelist=added_edges_B,
-                           width=0.5, edge_color="purple", style="dashed",
+                           width=1, edge_color="#F41515", style="dashed",
                            alpha=0.7, ax=ax2)
 
     ax2.set_title("Macro Subgraph B")
