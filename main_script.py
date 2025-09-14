@@ -535,8 +535,8 @@ def main():
 
 # Usa un raggio basato sulla densità effettiva
 # Ad esempio, imposta il raggio proporzionale all'estensione della zona densa
-        radius_density_factor = 1.2  # Fattore per includere l'intera zona densa con margine
-        radiusA = radius_density_factor * search_radius  # search_radius dalla funzione find_densest_zone_minutia
+        radius_density_factor = 1  # Fattore per includere l'intera zona densa con margine
+        radiusA = radius_density_factor * radiusA  # search_radius dalla funzione find_densest_zone_minutia
         S_A = get_subgraph_within_radius(G_A, M3_A, start_nodeA, radiusA)
         
         # Estrazione sotto-sottografi A
