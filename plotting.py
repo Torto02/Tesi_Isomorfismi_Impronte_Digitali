@@ -6,9 +6,9 @@ import numpy as np
 
 
 NODE_TYPE_COLOR_MAP = {
-    'ending': '#E44141',
+    'ending': '#4EC14E',
     'bifurcation': "#3939BA",
-    'added': "#4EC14E",
+    'added': "#FF0000",
     'border': 'purple',
 }
 
@@ -371,7 +371,7 @@ def plot_match_with_context(macro_A, macro_B, sub_A, sub_B,
     nx.draw_networkx_nodes(sub_A, posA,
                            nodelist=real_nodes_A,
                            node_size=12, node_color=node_colors_A, ax=ax1,
-                           edgecolors="black", linewidths=0.6)
+                           edgecolors="black")
 
     # Archi reali (non 'added')
     real_edges_A = [e for e in sub_A.edges() if sub_A.edges[e].get("type") != "added"]
@@ -407,7 +407,7 @@ def plot_match_with_context(macro_A, macro_B, sub_A, sub_B,
     nx.draw_networkx_nodes(sub_B, posB,
                            nodelist=real_nodes_B,
                            node_size=12, node_color=node_colors_B, ax=ax2,
-                           edgecolors="black", linewidths=0.6)
+                           edgecolors="black")
 
     # Archi reali (non 'added')
     real_edges_B = [e for e in sub_B.edges() if sub_B.edges[e].get("type") != "added"]
