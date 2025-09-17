@@ -2,6 +2,7 @@ import json
 import networkx as nx
 import matplotlib.pyplot as plt
 import os
+import matplotlib.patheffects as pe
 
 def choose_impronte(impronte):
     print("Impronte disponibili:")
@@ -40,8 +41,8 @@ def choose_impronte(impronte):
 
 def main():
     # Flag per mostrare o meno i nodi/archi "added"
-    SHOW_ADDED_NODES = True
-    SHOW_ADDED_EDGES = True
+    SHOW_ADDED_NODES = False
+    SHOW_ADDED_EDGES = False
 
     # Percorso della cartella contenente le impronte
     folder_path = "/Users/riccardotortorelli/Desktop/Tesi/Archivio"
@@ -113,7 +114,7 @@ def main():
             'added': "#db7800"
         }
         edge_color_map = {
-            'ridge': 'darkgray',
+            'ridge': "#1F1F1F",
             'border': 'purple',
             'added': 'red'  # esplicito per gli archi added
         }
@@ -138,17 +139,33 @@ def main():
             edge_colors = [edge_color_map.get(attr.get('type'), 'red')
                            for u, v, attr in G.edges(data=True)]
 
-        plt.figure(figsize=(18,18))
-        nx.draw_networkx_nodes(G, pos_filtered, nodelist=nodes_to_draw, node_color=node_colors, node_size=8)
-        nx.draw_networkx_edges(G, pos, edgelist=edges_to_draw, edge_color=edge_colors, width=1.4)
-        nx.draw_networkx_labels(G, pos_filtered, labels={n: n for n in nodes_to_draw}, font_size=1, font_color='black')
+        plt.figure(figsize=(76, 48))  # raddoppia la dimensione
+        nx.draw_networkx_nodes(G, pos_filtered, nodelist=nodes_to_draw, node_color=node_colors, node_size=58)  # più grandi
+        nx.draw_networkx_edges(G, pos, edgelist=edges_to_draw, edge_color=edge_colors, width=2, alpha=0.9)    # più spessi
+        # nx.draw_networkx_labels(
+        #     G,
+        #     pos_filtered,
+        #     labels={n: n for n in nodes_to_draw},
+        #     font_size=8,  # più grande
+        #     font_color='black',
+        #     font_weight='regular',
+        #     bbox=dict(boxstyle="round,pad=0.05", fc=(1, 1, 1, 0.0), ec=(1, 1, 1, 0.0))
+        # )
+        # Applica un contorno bianco sottile alle etichette per leggibilità
+        for text in plt.gca().texts:
+            text.set_path_effects([pe.withStroke(linewidth=0.6, foreground="white")])
 
         plt.axis('off')
         plt.tight_layout()
-        output_path = os.path.join(output_folder, f"{impronta_selezionata}_graph.png")
-        plt.savefig(output_path, dpi=800)
+
+        # Salva PNG a 400-600 DPI e anche SVG vettoriale
+        # output_path_png = os.path.join(output_folder, f"{impronta_selezionata}_graph.png")
+        output_path_svg = os.path.join(output_folder, f"{impronta_selezionata}_graph.svg")
+
+        # plt.savefig(output_path_png, dpi=1000, bbox_inches="tight", pad_inches=0.01)
+        plt.savefig(output_path_svg, format="svg", bbox_inches="tight", pad_inches=0.01)
         plt.close()
-        print(f"Grafo di '{impronta_selezionata}' salvato in '{output_path}'.")
+        # print(f"Grafo di '{impronta_selezionata}' salvato in '{output_path_png}' e '{output_path_svg}'.")
 
     print("\nTutti i grafi selezionati sono stati plottati e salvati nella cartella ImpronteGraphs.")
 

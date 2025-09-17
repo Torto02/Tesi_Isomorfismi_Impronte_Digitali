@@ -98,7 +98,7 @@ def plot_and_save_subgraph(S, G_original, source_node, output_folder, filename):
     os.makedirs(output_folder, exist_ok=True)
     output_path = os.path.join(output_folder, filename)
     try:
-        plt.savefig(output_path, dpi=900, bbox_inches='tight')
+        plt.savefig(output_path, format="svg", bbox_inches='tight', pad_inches=0.01)
         print(f"Immagine del sottografo salvata in: {output_path}")
     except Exception as e:
         print(f"Errore durante il salvataggio di {output_path}: {e}")
@@ -216,7 +216,7 @@ def plot_mapping(S_A, S_B, G_A, G_B, mapping, output_folder, filename, score=Non
         plt.suptitle(f"Match Score: {score:.4f}", fontsize=16)
     
     
-    plt.savefig(os.path.join(output_folder, filename), dpi=800, bbox_inches='tight')
+    plt.savefig(os.path.join(output_folder, filename), format="svg", bbox_inches='tight', pad_inches=0.01)
     plt.close(fig)
 
 def plot_final_graphs(
@@ -326,7 +326,7 @@ def plot_final_graphs(
     os.makedirs(output_folder, exist_ok=True)
     out_path = os.path.join(output_folder, filename)
     try:
-        plt.savefig(out_path, dpi=800)  
+        plt.savefig(out_path, format="svg", bbox_inches='tight', pad_inches=0.01)
         print(f"Stampa finale dei grafi salvata in: {out_path}")
     except Exception as e:
         print(f"Errore durante il salvataggio di {out_path}: {e}")
@@ -345,18 +345,18 @@ def plot_match_with_context(macro_A, macro_B, sub_A, sub_B,
     posA = nx.get_node_attributes(G_A, "pos")
     posB = nx.get_node_attributes(G_B, "pos")
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 9))
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(36, 18))  # Molto grande per dettagli
 
     # --- Macro A ---
     # Filtra i nodi 'added' dal macro-grafo A
     real_nodes_macro_A = [n for n in macro_A.nodes() if macro_A.nodes[n].get("type") != "added"]
     nx.draw_networkx_nodes(macro_A, posA,
                            nodelist=real_nodes_macro_A,
-                           node_size=3, node_color="lightgrey", ax=ax1)
+                           node_size=10, node_color="#5B5B5B", ax=ax1)
     nx.draw_networkx_edges(macro_A, posA,
                            edgelist=[e for e in macro_A.edges()
                                      if macro_A.edges[e].get("type") != "added"],
-                           width=0.2, edge_color="lightgrey", ax=ax1)
+                           width=1, edge_color="#5B5B5B", ax=ax1)
     
     # Nodi reali (non 'added') del sottografo
     real_nodes_A = [n for n in sub_A.nodes() if sub_A.nodes[n].get("type") != "added"]
@@ -364,14 +364,14 @@ def plot_match_with_context(macro_A, macro_B, sub_A, sub_B,
 
     nx.draw_networkx_nodes(sub_A, posA,
                            nodelist=real_nodes_A,
-                           node_size=5, node_color=node_colors_A, ax=ax1,
+                           node_size=30, node_color=node_colors_A, ax=ax1,
                            edgecolors="black", linewidths=0.5)
 
     # Archi veri
     sub_edges_A = [e for e in sub_A.edges() if sub_A.edges[e].get("type") != "added"]
     nx.draw_networkx_edges(sub_A, posA,
                            edgelist=sub_edges_A,
-                           width=0.5, edge_color="blue", ax=ax1)
+                           width=2, edge_color="blue", ax=ax1)
 
     ax1.set_title("Macro Subgraph A")
     ax1.axis("off")
@@ -382,24 +382,24 @@ def plot_match_with_context(macro_A, macro_B, sub_A, sub_B,
     real_nodes_macro_B = [n for n in macro_B.nodes() if macro_B.nodes[n].get("type") != "added"]
     nx.draw_networkx_nodes(macro_B, posB,
                            nodelist=real_nodes_macro_B,
-                           node_size=3, node_color="lightgrey", ax=ax2)
+                           node_size=10, node_color="#5B5B5B", ax=ax2)
     nx.draw_networkx_edges(macro_B, posB,
                            edgelist=[e for e in macro_B.edges()
                                      if macro_B.edges[e].get("type") != "added"],
-                           width=0.2, edge_color="lightgrey", ax=ax2)
+                           width=1, edge_color="#5B5B5B", ax=ax2)
 
     real_nodes_B = [n for n in sub_B.nodes() if sub_B.nodes[n].get("type") != "added"]
     node_colors_B = [NODE_TYPE_COLOR_MAP.get(sub_B.nodes[n].get('type', 'unknown')) for n in real_nodes_B]
 
     nx.draw_networkx_nodes(sub_B, posB,
                            nodelist=real_nodes_B,
-                           node_size=5, node_color=node_colors_B, ax=ax2,
+                           node_size=30, node_color=node_colors_B, ax=ax2,
                            edgecolors="black", linewidths=0.5)
 
     sub_edges_B = [e for e in sub_B.edges() if sub_B.edges[e].get("type") != "added"]
     nx.draw_networkx_edges(sub_B, posB,
                            edgelist=sub_edges_B,
-                           width=0.5, edge_color="blue", ax=ax2)
+                           width=2, edge_color="blue", ax=ax2)
 
     ax2.set_title("Macro Subgraph B")
     ax2.axis("off")
@@ -410,7 +410,7 @@ def plot_match_with_context(macro_A, macro_B, sub_A, sub_B,
 
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, filename)
-    plt.savefig(out_path, dpi=600, bbox_inches="tight")
+    plt.savefig(out_path, format="svg", bbox_inches="tight", pad_inches=0.01)
     plt.close()
 
 # def plot_chirality_check(G_A, G_B, mapping, output_folder, filename, score=None):

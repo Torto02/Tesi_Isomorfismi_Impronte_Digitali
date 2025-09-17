@@ -522,7 +522,9 @@ def main():
         print("Nessun sotto-sottografo di dimensione richiesta, esco.")
         return
 
-    # --- Preparazione parametri per il matching parallelo ---
+    # --- Preparazione parametri per il matching parallelo ---50
+    53
+    
     params = {
         'M3_A': M3_A, 'M3_B': M3_B,
         'M_scav_A': M_scav_A, 'M_scav_B': M_scav_B,
